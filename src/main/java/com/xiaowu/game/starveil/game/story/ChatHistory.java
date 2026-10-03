@@ -112,6 +112,9 @@ public final class ChatHistory {
 
     /**
      * 章节切换时的处理：默认清空，除非特殊键声明要跨章节保留。
+     *
+     * <p>由 {@link com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.ChapterChanged}
+     * 广播驱动（见下方静态监听注册），章节调度器不需要知道聊天记录的存在。
      */
     public synchronized void onChapterChanged() {
         onChapterChanged(readKeepAcrossChapters());
@@ -139,5 +142,17 @@ public final class ChatHistory {
     synchronized void resetForTest() {
         entries.clear();
         nextId = 1;
+    }
+
+    /**
+     * 监听「章节切换」事件。
+     *
+     * <p>这是事件总线在框架内部的第一处实际用法：章节调度器只管广播
+     * {@code ChapterChanged}，由聊天记录自己决定要不要清空 ——
+     * 调度器不再需要 import 本类，将来别的东西想对章节切换做反应也不必再改它。
+     */
+    static {
+        com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents
+                .onChapterChanged(event -> ChatHistory.getInstance().onChapterChanged());
     }
 }

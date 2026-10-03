@@ -407,7 +407,8 @@ public class TutorialManager {
         }
         // 走 DataManager 的路由方法：进度记在存档还是全局，由 starveil:tutorial_persist 决定
         DataManager.setTutorialCompleted(true);
-        // 剧情脚本在 awaitTutorial() 上等待，这里解锁后它才能继续
+        // 广播教程完成 + 解锁剧情脚本的 awaitTutorial() 等待
+        com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.tutorialCompleted();
         EventCallbackManager.getInstance().triggerTutorialCompleted();
         releaseStoryLayer();
         step = Step.FINISHED;

@@ -174,15 +174,18 @@ public class Menu extends Application {
     /**
      * 显示菜单内容（提示显示完成后调用）。
      *
-     * <p>这里<b>不再</b>偷偷解锁 "welcome" 之类的成就：框架不预设任何成就 ID，
-     * 什么时候解锁哪一条由内容自己决定（在章节脚本或内容初始化里调用
-     * {@code AchievementManager.unlockAchievement(...)}）。框架硬写一个 ID，
-     * 内容没定义它时就只剩一条 "成就ID不存在" 的错误日志。
+     * <p>这里广播 {@link com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.MenuShown}：
+     * 主菜单真正可见了。需要「菜单一出来就做点什么」的东西（内容、插件、
+     * 框架自己的模块）监听即可，不用回来改这个方法 —— 没人监听时这次广播
+     * 就是一次空操作。
+     *
+     * <p>框架自己<b>不</b>在这里预设任何成就 ID：什么时候解锁哪一条成就由内容决定。
      */
     private void showMenuContent() {
         Platform.runLater(() -> {
-            // 目前没有额外要做的事：菜单内容已在 start() 里加好了。
-            // 保留这个回调是为了给「提示显示完之后」留一个明确的挂点。
+            // 菜单内容已在 start() 里加好了，这里只负责广播
+            com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents
+                    .menuShown(GameConstants.MAIN_MENU_TITLE);
         });
     }
 
@@ -429,6 +432,9 @@ public class Menu extends Application {
         this.settingManager = manager;
 
         Object settingRoot = manager.createRoot();
+
+        // 广播「设置界面已打开」——主菜单这条路也要发，不能只有游戏内那条路径发
+        com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.settingsOpened();
 
         // 绑定大小到场景
         if (settingRoot instanceof javafx.scene.layout.Region) {

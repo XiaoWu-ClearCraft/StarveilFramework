@@ -247,6 +247,8 @@ public class SettingManager {
         saveSettings();
         AnimationHandle fadeOut = renderEngine.createFadeOut(mainContainer, 200, 1, 0);
         fadeOut.setOnComplete(() -> {
+            // 「关掉了」这件事在动画结束后才广播：此时界面确实已经不在了
+            com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.settingsClosed(true);
             if (onCloseCallback != null) onCloseCallback.run();
         });
         renderEngine.playAnimation(fadeOut);
@@ -260,6 +262,7 @@ public class SettingManager {
         restoreSettings();
         AnimationHandle fadeOut = renderEngine.createFadeOut(mainContainer, 200, 1, 0);
         fadeOut.setOnComplete(() -> {
+            com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.settingsClosed(false);
             if (onCloseCallback != null) onCloseCallback.run();
         });
         renderEngine.playAnimation(fadeOut);
@@ -694,6 +697,9 @@ public class SettingManager {
         NotificationManager.getInstance()
                 .showNotification(tr("framework.setting.language", "界面语言"),
                         LanguageSettings.displayName(code), null, 3);
+        // 广播语言切换：界面需要重建的（例如标题栏文案）自己监听，
+        // 不必让本类去认识每一个关心语言的地方
+        com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.languageChanged(code);
         if (onLanguageChanged != null) {
             onLanguageChanged.accept(code);
         }

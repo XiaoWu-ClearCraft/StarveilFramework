@@ -213,6 +213,8 @@ public class SaveManager {
             saveAllSaves(allSaves);
 
             LoggerManager.Logger("INFO", "游戏已保存到槽位 " + (slotIndex + 1));
+            com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents
+                    .gameSaved(slotIndex);
 
         } catch (Exception e) {
             LoggerManager.Logger("ERROR", "保存游戏失败: " + e.getMessage());
@@ -464,6 +466,8 @@ public class SaveManager {
             LoggerManager.Logger("INFO", "剧情将从第 " + chapter + " 章继续");
 
             LoggerManager.Logger("INFO", "已从槽位 " + (slotIndex + 1) + " 加载存档并启动游戏");
+            com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents
+                    .gameLoaded(slotIndex);
 
         } catch (Exception e) {
             LoggerManager.Logger("ERROR", "加载游戏失败: " + e.getMessage());

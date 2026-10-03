@@ -201,6 +201,8 @@ gradlew.bat buildAll
 | [构建指南](docs/build-guide.md) | 内容怎么接入框架、两种打包方式、产物结构 |
 | [剧情开发指南](docs/story-guide.md) | 章节怎么写、剧情脚本 API、动画键、世界与玩法系统 |
 | [数据键](docs/data-keys.md) | 键怎么注册、类型与作用域规则、每个内置键的作用 |
+| [生命周期事件](docs/lifecycle-events.md) | 想在框架的某个时机（菜单显示、章节切换…）插一脚时怎么监听广播 |
+| [许可说明](docs/licensing.md) | 用框架做的游戏有什么开源义务 |
 
 目录索引见 [docs/README.md](docs/README.md)。
 

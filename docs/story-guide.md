@@ -103,10 +103,36 @@ com.xiaowu.game.starveil.content.chapter<N>.Chapter<N>
 
 - 定义：`assets/starveil/data/config/achievements.json`（`id → {id, name, description, iconPath}`）
 - 解锁：在内容代码里调用 `AchievementManager.unlockAchievement("你的id")`，
-  例如在 `content.init.init()` 里解锁「首次启动」，或在章节脚本里按剧情进度解锁
+  例如在章节脚本里按剧情进度解锁
 - ID 未定义时解锁会记 `ERROR` —— 用它来发现自己拼错了成就 ID
 
 缺这份定义文件时成就列表留空、主菜单隐藏成就入口，不会报错。
+
+> ⚠ **不要在 `content.init.init()` 里解锁**：解锁要弹通知，而那一刻渲染引擎还没建好。
+> 最早也要等到章节脚本开始运行。框架已把通知失败降级成一条 WARNING，
+> 不会因此崩掉，但成就通知也就看不到了。
+
+---
+
+### 事件广播
+
+框架在关键时机广播事件（菜单显示、游戏开始、章节切换、存档、设置开关、
+语言切换、教程完成），**谁关心谁监听，没有监听者时广播就是空操作**：
+
+```java
+// 在 content.init.init() 里注册，之后每次进主菜单都会收到
+LifecycleEvents.onMenuShown(e -> AchievementManager.unlockAchievement("welcome"));
+
+// 只想第一次进游戏时做点什么
+LifecycleEvents.onceMenuShown(e -> { /* ... */ });
+
+// 章节切换时
+LifecycleEvents.onChapterChanged(e ->
+        LoggerManager.Logger("INFO", "进入第 " + e.chapter() + " 章"));
+```
+
+完整事件清单、时机上的注意点、以及怎么广播自己的事件，见
+[生命周期事件](lifecycle-events.md)。
 
 ---
 

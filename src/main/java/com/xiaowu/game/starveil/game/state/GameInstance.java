@@ -201,6 +201,13 @@ public class GameInstance {
         // 教程进度的保存范围（随存档 / 跨存档）在存档会话开始时确定，之后不再变动
         com.xiaowu.game.starveil.infrastructure.persistence.TutorialState.applyPersistMode();
 
+        // 广播「一局游戏开始」。此刻世界还没加载（章节模式决定要不要世界），
+        // 所以监听者不要在这里假设玩家已经站在地图上。
+        // 读档路径稍后还会广播 GameLoaded 带槽位号。
+        com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.gameStarted(
+                com.xiaowu.game.starveil.game.story.ChapterDirector.getInstance().startChapter(),
+                false);
+
         // 初始化游戏UI（血条、渐变背景、消息显示）
         GameUI.getInstance().attachToGame();
 
@@ -1118,6 +1125,8 @@ public class GameInstance {
         if (isSettingOpen) return; // 避免重复打开
         isSettingOpen = true;
         buildSettingOverlay();
+        // 广播「设置界面已打开」：想趁机暂停点什么、或记录一下的东西可以监听
+        com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.settingsOpened();
         // 隐藏 GameUI
         GameUI.getInstance().hide();
     }

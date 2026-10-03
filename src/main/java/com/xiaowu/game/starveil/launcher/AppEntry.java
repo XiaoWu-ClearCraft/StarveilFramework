@@ -114,6 +114,11 @@ public class AppEntry {
                 Logger("INFO", "插件加载完成，准备启动 Launcher");
             }
 
+            // 框架自身就绪：配置、内容、插件都已到位，界面还没开始建。
+            // 广播出去，谁想在这时准备点什么（读资源、注册自己的监听）就自己接。
+            com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents
+                    .frameworkReady(GameConstants.FRAMEWORK_VERSION);
+
             // 插件加载之后才能判断平台是否受支持：平台适配插件可能刚刚替换了注入点。
             // 此时还没有创建锁文件，直接退出不会留下残留状态。
             if (!PlatformSupport.isSupported()) {

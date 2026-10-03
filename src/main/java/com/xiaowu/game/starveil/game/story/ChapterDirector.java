@@ -204,9 +204,10 @@ public final class ChapterDirector {
             pendingChapter = -1;
             running = true;
             Logger("INFO", "[ChapterDirector] 开始章节 " + chapter + "（模式 " + mode + "）");
-            // 聊天记录默认随章节切换清空；特殊键 starveil:chat_history_keep_chapters
-            // 设为 true 可跨章节保留。章节代码也可以随时自行 clear()。
-            ChatHistory.getInstance().onChapterChanged();
+            // 广播章节切换：谁关心谁处理（例如聊天记录据此决定是否清空），
+            // 章节调度器不需要认识它们。没有监听者时这次广播就是空操作。
+            com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents
+                    .chapterChanged(chapter, mode.name());
 
             return StoryScripts.run(instance).whenComplete((r, ex) -> {
                 running = false;
