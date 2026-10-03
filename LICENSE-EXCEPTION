@@ -1,0 +1,67 @@
+Starveil Framework — Game Content Exception
+Version 1.0
+
+As a special exception to the GNU Affero General Public License (AGPL-3.0), the
+copyright holders of the Starveil Framework grant you permission to link,
+combine, package and convey the framework together with independent game content
+of your own — including but not limited to chapter scripts, story data, maps,
+items, achievement definitions, textures, audio, fonts, translations and any
+other files you add — and to license and distribute the resulting combined work,
+as a whole, under terms of your choice.
+
+This exception applies only while the framework code contained in your combined
+work is unmodified. For the purposes of this exception, framework code means the
+compiled classes of the packages:
+
+    com.xiaowu.game.starveil.*
+
+excluding the package com.xiaowu.game.starveil.content and any of its
+subpackages, which are reserved for game content.
+
+"Unmodified" means the corresponding source code of those classes has not been
+modified, and the object code you convey contains no alteration of those classes
+other than what results from compiling that unmodified source. Repackaging the
+framework into a single archive together with your game content, and adding,
+removing or replacing game content files, assets, manifests, services or other
+resources, does not by itself count as modification.
+
+If you modify any framework code, this exception does not apply to your modified
+version of the framework. Your modified version, and the combined work that
+includes it, remain governed by the AGPL-3.0 as provided in section 5 of that
+license, and you must convey their Corresponding Source under the AGPL-3.0.
+
+This exception does not permit relicensing any part of the framework under terms
+other than the AGPL-3.0, and it does not remove the requirement to preserve the
+copyright notices of the framework and this exception notice.
+
+Nothing in this exception grants any rights under trademark law, or any right to
+present a modified version of the framework as the original.
+
+--------------------------------------------------------------------------
+中文参考译文（仅便于理解，以上英文文本为准）
+
+作为对 GNU Affero 通用公共许可证（AGPL-3.0）的特别例外，Starveil 框架的版权
+持有人允许你将本框架与你自己的独立游戏内容——包括但不限于章节脚本、剧情数据、
+地图、物品、成就定义、贴图、音频、字体、翻译以及任何其它你新增的文件——链接、
+结合、打包并分发，并允许你以你自行选择的条款授权和分发由此形成的结合作品整体。
+
+本例外仅在结合作品中包含的框架代码未被修改时适用。就本例外而言，「框架代码」
+指以下包的编译产物：
+
+    com.xiaowu.game.starveil.*
+
+但不包括 com.xiaowu.game.starveil.content 及其子包——该包保留给游戏内容使用。
+
+「未被修改」指上述类的对应源码未被修改，且你分发的目标码中不包含对这些类的改动
+（把未修改的源码编译出来所产生的结果除外）。将框架与你的游戏内容重新打包进同一个
+归档文件，以及新增、删除或替换游戏内容文件、资源、清单、服务描述或其它资源，
+本身都不构成本例外所称的修改。
+
+如果你修改了任何框架代码，本例外不适用于你的框架修改版；该修改版以及包含它的
+结合作品仍受 AGPL-3.0 第 5 条约束，你必须按 AGPL-3.0 提供其对应源码。
+
+本例外不允许以 AGPL-3.0 以外的条款对框架的任何部分重新授权，也不免除你保留框架
+版权声明与本例外声明的义务。
+
+本例外不授予任何商标法下的权利，也不授予将框架修改版当作原版呈现的权利。
+--------------------------------------------------------------------------

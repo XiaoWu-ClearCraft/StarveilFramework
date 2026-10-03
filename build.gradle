@@ -208,3 +208,16 @@ tasks.register('buildFast') {
 //   框架只负责定义注入点（PlatformInjectPoints）；示例怎么用它是示例自己的事，
 //   混在框架仓里既增加体积，也容易让人误以为它是框架的一部分。
 // ============================================================
+
+// ============================================================
+// 许可
+//
+// 框架整体以 AGPL-3.0 授权，并附带一份「游戏内容例外」：
+// 只要结合作品里的框架代码（com.xiaowu.game.starveil.*，不含 .content 子包）
+// 未被修改，用它做的游戏就可以闭源分发 —— 合包成一个胖 jar 也算。
+//
+// SPDX-License-Identifier: AGPL-3.0-only WITH Starveil-Game-Content-Exception
+//
+// 详见 LICENSE、LICENSE-EXCEPTION 与 docs/licensing.md。
+// ============================================================
+
