@@ -13,6 +13,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashMap;
 import java.util.Map;
 
+import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
+
 public class WindowsUserManager {
 
     private static String lastCreatedUsername = null;
@@ -45,7 +47,7 @@ public class WindowsUserManager {
         shortcutPaths.put("Temp", userProfilePath + "\\AppData\\Local\\Temp");
         shortcutPaths.put("RecycleBin", "C:\\$Recycle.Bin\\" + getRecycleBinSid(username));
 
-        System.out.println("快捷路径初始化完成，用户: " + username);
+        Logger("INFO", "快捷路径初始化完成，用户: " + username);
     }
 
     public interface Netapi32 extends Library {
@@ -163,29 +165,29 @@ public class WindowsUserManager {
 
     public static boolean createAndInitializeUser(String username, String fullName, String password) {
         try {
-            System.out.println("开始创建用户并让系统自动初始化 - 用户名: " + username + ", 全名: " + fullName);
+            Logger("INFO", "开始创建用户并让系统自动初始化 - 用户名: " + username + ", 全名: " + fullName);
 
             lastCreatedUsername = username;
 
             if (!createUserAccountOnly(username, fullName, password)) {
-                System.err.println("用户账户创建失败");
+                Logger("ERROR", "用户账户创建失败");
                 return false;
             }
 
             Thread.sleep(2000);
 
             if (!triggerSystemProfileCreation(username, password)) {
-                System.err.println("系统配置文件创建失败");
+                Logger("ERROR", "系统配置文件创建失败");
                 return false;
             }
 
             initializeShortcutPaths(username);
 
-            System.out.println("用户创建和系统初始化完成 - 用户名: " + username + ", 全名: " + fullName);
+            Logger("INFO", "用户创建和系统初始化完成 - 用户名: " + username + ", 全名: " + fullName);
             return true;
 
         } catch (Exception e) {
-            System.err.println("用户创建流程异常: " + e.getMessage());
+            Logger("ERROR", "用户创建流程异常: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -207,7 +209,7 @@ public class WindowsUserManager {
 
             return sid;
         } catch (Exception e) {
-            System.err.println("获取用户SID失败: " + e.getMessage());
+            Logger("ERROR", "获取用户SID失败: " + e.getMessage());
             return null;
         }
     }
@@ -226,7 +228,7 @@ public class WindowsUserManager {
             }
 
             String targetPath = resolvePath(username, location, fileName);
-            System.out.println("创建文件: " + targetPath);
+            Logger("INFO", "创建文件: " + targetPath);
 
             Path targetDir = Paths.get(targetPath).getParent();
             if (targetDir != null) {
@@ -237,11 +239,11 @@ public class WindowsUserManager {
 
             setFilePermissions(targetPath, username);
 
-            System.out.println("文件创建成功: " + targetPath);
+            Logger("INFO", "文件创建成功: " + targetPath);
             return true;
 
         } catch (Exception e) {
-            System.err.println("创建文件失败: " + e.getMessage());
+            Logger("ERROR", "创建文件失败: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -261,16 +263,16 @@ public class WindowsUserManager {
             }
 
             String targetPath = resolvePath(username, location, dirName);
-            System.out.println("创建目录: " + targetPath);
+            Logger("INFO", "创建目录: " + targetPath);
 
             Files.createDirectories(Paths.get(targetPath));
             setFilePermissions(targetPath, username);
 
-            System.out.println("目录创建成功: " + targetPath);
+            Logger("INFO", "目录创建成功: " + targetPath);
             return true;
 
         } catch (Exception e) {
-            System.err.println("创建目录失败: " + e.getMessage());
+            Logger("ERROR", "创建目录失败: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -294,7 +296,7 @@ public class WindowsUserManager {
 
             boolean movedToBin = moveFileToRecycleBin(tempPath);
             if (movedToBin) {
-                System.out.println("文件已成功移动到回收站: " + fileName);
+                Logger("INFO", "文件已成功移动到回收站: " + fileName);
                 return true;
             } else {
                 Files.deleteIfExists(Paths.get(tempPath));
@@ -302,7 +304,7 @@ public class WindowsUserManager {
             }
 
         } catch (Exception e) {
-            System.err.println("在回收站创建文件失败: " + e.getMessage());
+            Logger("ERROR", "在回收站创建文件失败: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -322,18 +324,18 @@ public class WindowsUserManager {
             }
 
             String targetPath = resolvePath(username, filePath, "");
-            System.out.println("删除文件: " + targetPath);
+            Logger("INFO", "删除文件: " + targetPath);
 
             if (moveToRecycleBin) {
                 return moveFileToRecycleBin(targetPath);
             } else {
                 Files.deleteIfExists(Paths.get(targetPath));
-                System.out.println("文件删除成功: " + targetPath);
+                Logger("INFO", "文件删除成功: " + targetPath);
                 return true;
             }
 
         } catch (Exception e) {
-            System.err.println("删除文件失败: " + e.getMessage());
+            Logger("ERROR", "删除文件失败: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -353,7 +355,7 @@ public class WindowsUserManager {
             }
 
             String targetPath = resolvePath(username, dirPath, "");
-            System.out.println("删除目录: " + targetPath);
+            Logger("INFO", "删除目录: " + targetPath);
 
             if (moveToRecycleBin) {
                 return moveFileToRecycleBin(targetPath);
@@ -371,12 +373,12 @@ public class WindowsUserManager {
                         return FileVisitResult.CONTINUE;
                     }
                 });
-                System.out.println("目录删除成功: " + targetPath);
+                Logger("INFO", "目录删除成功: " + targetPath);
                 return true;
             }
 
         } catch (Exception e) {
-            System.err.println("删除目录失败: " + e.getMessage());
+            Logger("ERROR", "删除目录失败: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -399,15 +401,15 @@ public class WindowsUserManager {
             boolean success = (result == 0) && !fileOp.fAnyOperationsAborted;
 
             if (success) {
-                System.out.println("文件已移动到回收站: " + filePath);
+                Logger("INFO", "文件已移动到回收站: " + filePath);
             } else {
-                System.err.println("移动到回收站失败，错误代码: " + result);
+                Logger("ERROR", "移动到回收站失败，错误代码: " + result);
             }
 
             return success;
 
         } catch (Exception e) {
-            System.err.println("移动到回收站异常: " + e.getMessage());
+            Logger("ERROR", "移动到回收站异常: " + e.getMessage());
             return false;
         }
     }
@@ -433,12 +435,12 @@ public class WindowsUserManager {
             int exitCode = process.waitFor();
 
             if (exitCode == 0) {
-                System.out.println("文件权限设置成功: " + filePath);
+                Logger("INFO", "文件权限设置成功: " + filePath);
             } else {
-                System.err.println("文件权限设置失败，退出代码: " + exitCode);
+                Logger("ERROR", "文件权限设置失败，退出代码: " + exitCode);
             }
         } catch (Exception e) {
-            System.err.println("设置文件权限异常: " + e.getMessage());
+            Logger("ERROR", "设置文件权限异常: " + e.getMessage());
         }
     }
 
@@ -498,14 +500,14 @@ public class WindowsUserManager {
             return Files.exists(Paths.get(targetPath));
 
         } catch (Exception e) {
-            System.err.println("检查文件存在性失败: " + e.getMessage());
+            Logger("ERROR", "检查文件存在性失败: " + e.getMessage());
             return false;
         }
     }
 
     private static boolean createUserAccountOnly(String username, String fullName, String password) {
         try {
-            System.out.println("创建用户账户 - 用户名: " + username + ", 全名: " + fullName);
+            Logger("INFO", "创建用户账户 - 用户名: " + username + ", 全名: " + fullName);
 
             String command = String.format(
                     "powershell -Command \"" +
@@ -523,63 +525,70 @@ public class WindowsUserManager {
             int exitCode = process.waitFor();
 
             if (exitCode == 0) {
-                System.out.println("用户账户创建成功 - 用户名: " + username + ", 全名: " + fullName);
+                Logger("INFO", "用户账户创建成功 - 用户名: " + username + ", 全名: " + fullName);
                 return true;
             } else {
-                System.err.println("用户账户创建失败，退出代码: " + exitCode);
+                Logger("ERROR", "用户账户创建失败，退出代码: " + exitCode);
                 try {
                     BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
                     String line;
                     while ((line = errorReader.readLine()) != null) {
-                        System.err.println("错误输出: " + line);
+                        Logger("DEBUG", "命令的错误输出: " + line);
                     }
                 } catch (Exception ex) {
-                    System.err.println("读取错误输出失败: " + ex.getMessage());
+                    Logger("DEBUG", "读取命令错误输出失败: " + ex.getMessage());
                 }
                 return false;
             }
 
         } catch (Exception e) {
-            System.err.println("创建用户账户异常: " + e.getMessage());
+            Logger("ERROR", "创建用户账户异常: " + e.getMessage());
             return false;
         }
     }
 
+    /**
+     * 依次尝试三种方式触发系统创建用户配置文件。
+     *
+     * <p>每一种方式<b>单独失败是正常的</b>（不同 Windows 版本可用的手段不同），
+     * 所以它们的失败记 WARNING；只有三种全失败才算真正的 ERROR ——
+     * 否则一个成功的降级流程会在日志里留下三条 ERROR，把真问题淹掉。
+     */
     private static boolean triggerSystemProfileCreation(String username, String password) {
         try {
-            System.out.println("触发系统自动创建用户配置文件: " + username);
+            Logger("INFO", "触发系统自动创建用户配置文件: " + username);
 
             if (createProfileWithWin32(username)) {
-                System.out.println("Win32 API配置文件创建成功");
+                Logger("INFO", "Win32 API配置文件创建成功");
                 return true;
             }
 
             if (triggerProfileWithPowerShell(username, password)) {
-                System.out.println("PowerShell触发配置文件创建成功");
+                Logger("INFO", "PowerShell触发配置文件创建成功");
                 return true;
             }
 
             if (triggerProfileWithSystemCommand(username, password)) {
-                System.out.println("系统命令触发配置文件创建成功");
+                Logger("INFO", "系统命令触发配置文件创建成功");
                 return true;
             }
 
-            System.err.println("所有配置文件创建方法都失败");
+            Logger("ERROR", "所有配置文件创建方法都失败");
             return false;
 
         } catch (Exception e) {
-            System.err.println("触发系统配置文件创建异常: " + e.getMessage());
+            Logger("ERROR", "触发系统配置文件创建异常: " + e.getMessage());
             return false;
         }
     }
 
     private static boolean createProfileWithWin32(String username) {
         try {
-            System.out.println("使用Win32 API创建配置文件: " + username);
+            Logger("INFO", "使用Win32 API创建配置文件: " + username);
 
             String userSid = getUserSID(username);
             if (userSid == null) {
-                System.err.println("无法获取用户SID");
+                Logger("WARNING", "取不到用户 SID，Win32 方式不可用，交给下一种方式");
                 return false;
             }
 
@@ -592,22 +601,22 @@ public class WindowsUserManager {
             );
 
             if (profileCreated) {
-                System.out.println("系统已自动创建完整的用户配置文件");
+                Logger("INFO", "系统已自动创建完整的用户配置文件");
                 return true;
             } else {
-                System.err.println("CreateProfile失败");
+                Logger("WARNING", "CreateProfile 返回失败，交给下一种方式");
                 return false;
             }
 
         } catch (Exception e) {
-            System.err.println("Win32 API创建配置文件异常: " + e.getMessage());
+            Logger("WARNING", "Win32 API 创建配置文件出错，交给下一种方式: " + e.getMessage());
             return false;
         }
     }
 
     private static boolean triggerProfileWithPowerShell(String username, String password) {
         try {
-            System.out.println("使用PowerShell触发系统初始化: " + username);
+            Logger("INFO", "使用PowerShell触发系统初始化: " + username);
 
             String command = String.format(
                     "powershell -Command \"" +
@@ -625,14 +634,14 @@ public class WindowsUserManager {
             return exitCode == 0;
 
         } catch (Exception e) {
-            System.err.println("PowerShell触发系统初始化异常: " + e.getMessage());
+            Logger("WARNING", "PowerShell 方式出错，交给下一种方式: " + e.getMessage());
             return false;
         }
     }
 
     private static boolean triggerProfileWithSystemCommand(String username, String password) {
         try {
-            System.out.println("使用系统命令触发配置文件创建: " + username);
+            Logger("INFO", "使用系统命令触发配置文件创建: " + username);
 
             String command = String.format(
                     "cmd /c echo %s | runas /user:%s \"cmd /c exit\"",
@@ -646,14 +655,14 @@ public class WindowsUserManager {
             File userDir = new File(profilePath);
 
             if (userDir.exists() && userDir.isDirectory()) {
-                System.out.println("系统已自动创建用户文件夹: " + profilePath);
+                Logger("INFO", "系统已自动创建用户文件夹: " + profilePath);
                 return true;
             }
 
             return false;
 
         } catch (Exception e) {
-            System.err.println("系统命令触发配置文件创建异常: " + e.getMessage());
+            Logger("WARNING", "系统命令方式出错，交给调用方判断: " + e.getMessage());
             return false;
         }
     }
@@ -673,22 +682,23 @@ public class WindowsUserManager {
             int exitCode = process.waitFor();
 
             if (exitCode == 0 && sid != null && !sid.trim().isEmpty()) {
-                System.out.println("获取用户SID成功: " + sid);
+                Logger("DEBUG", "获取用户 SID 成功: " + sid);
                 return sid;
             } else {
-                System.err.println("获取用户SID失败");
+                // 取不到 SID 只是一种方式不可用，由上层的多种降级继续尝试
+                Logger("WARNING", "获取用户 SID 失败（退出码 " + exitCode + "）");
                 return null;
             }
 
         } catch (Exception e) {
-            System.err.println("获取用户SID异常: " + e.getMessage());
+            Logger("WARNING", "获取用户 SID 出错: " + e.getMessage());
             return null;
         }
     }
 
     public static boolean updateUserFullName(String username, String fullName) {
         try {
-            System.out.println("更新用户全名 - 用户名: " + username + ", 新全名: " + fullName);
+            Logger("INFO", "更新用户全名 - 用户名: " + username + ", 新全名: " + fullName);
 
             String command = String.format(
                     "powershell -Command \"Set-LocalUser -Name '%s' -FullName '%s'\"",
@@ -699,15 +709,15 @@ public class WindowsUserManager {
             int exitCode = process.waitFor();
 
             if (exitCode == 0) {
-                System.out.println("用户全名更新成功");
+                Logger("INFO", "用户全名更新成功");
                 return true;
             } else {
-                System.err.println("用户全名更新失败");
+                Logger("ERROR", "用户全名更新失败");
                 return false;
             }
 
         } catch (Exception e) {
-            System.err.println("更新用户全名异常: " + e.getMessage());
+            Logger("ERROR", "更新用户全名异常: " + e.getMessage());
             return false;
         }
     }
@@ -760,7 +770,7 @@ public class WindowsUserManager {
             return desktopDir.exists() && documentsDir.exists() && appDataDir.exists();
 
         } catch (Exception e) {
-            System.err.println("检查用户配置文件状态异常: " + e.getMessage());
+            Logger("ERROR", "检查用户配置文件状态异常: " + e.getMessage());
             return false;
         }
     }
@@ -776,15 +786,15 @@ public class WindowsUserManager {
             int exitCode = process.waitFor();
 
             if (exitCode == 0) {
-                System.out.println("用户删除成功: " + username);
+                Logger("INFO", "用户删除成功: " + username);
                 return true;
             } else {
-                System.err.println("用户删除失败: " + username);
+                Logger("ERROR", "用户删除失败: " + username);
                 return false;
             }
 
         } catch (Exception e) {
-            System.err.println("删除用户异常: " + e.getMessage());
+            Logger("ERROR", "删除用户异常: " + e.getMessage());
             return false;
         }
     }

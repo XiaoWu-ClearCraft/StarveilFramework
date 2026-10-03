@@ -13,6 +13,8 @@ import javafx.stage.Window;
 import java.lang.reflect.Method;
 import java.util.List;
 
+import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
+
 public class WinOpsManager {
 
     public interface User32Extra extends StdCallLibrary {
@@ -142,7 +144,7 @@ public class WinOpsManager {
 
     public static void showInfo(String title, String message) {
         if (dialogBlocked) {
-            System.out.println("[BLOCKED] " + title + ": " + message);
+            Logger("WARNING", "[弹窗被拦截] " + title + ": " + message);
             return;
         }
         showOwnedMessageBox(title, message,
@@ -151,7 +153,7 @@ public class WinOpsManager {
 
     public static void showWarning(String title, String message) {
         if (dialogBlocked) {
-            System.out.println("[BLOCKED] " + title + ": " + message);
+            Logger("WARNING", "[弹窗被拦截] " + title + ": " + message);
             return;
         }
         showOwnedMessageBox(title, message,
@@ -160,7 +162,7 @@ public class WinOpsManager {
 
     public static void showError(String title, String message) {
         if (dialogBlocked) {
-            System.err.println("[BLOCKED] " + title + ": " + message);
+            Logger("ERROR", "[弹窗被拦截] " + title + ": " + message);
             return;
         }
         showOwnedMessageBox(title, message,
@@ -169,7 +171,7 @@ public class WinOpsManager {
 
     public static boolean showConfirm(String title, String message) {
         if (dialogBlocked) {
-            System.out.println("[BLOCKED] " + title + ": " + message + " → false");
+            Logger("WARNING", "[弹窗被拦截] " + title + ": " + message + " → 按取消处理");
             return false;
         }
         int result = showOwnedMessageBox(title, message,
@@ -179,7 +181,7 @@ public class WinOpsManager {
 
     public static int showCustom(String title, String message, int buttons, int icon) {
         if (dialogBlocked) {
-            System.out.println("[BLOCKED] " + title + ": " + message);
+            Logger("WARNING", "[弹窗被拦截] " + title + ": " + message);
             return 1;
         }
         return showOwnedMessageBox(title, message, buttons | icon);
@@ -190,7 +192,7 @@ public class WinOpsManager {
             playSystemSound(soundType);
             performWindowShake(stage);
         } catch (Exception e) {
-            System.err.println("窗口抖动失败: " + e.getMessage());
+            Logger("WARNING", "窗口抖动失败: " + e.getMessage());
         }
     }
 
@@ -208,7 +210,7 @@ public class WinOpsManager {
             };
             User32Extra.INSTANCE.MessageBeep(beepType);
         } catch (Exception e) {
-            System.err.println("播放提示音失败: " + e.getMessage());
+            Logger("WARNING", "播放提示音失败: " + e.getMessage());
         }
     }
 
@@ -216,17 +218,17 @@ public class WinOpsManager {
         try {
             WinDef.HWND hwnd = getWindowHandle(stage);
             if (hwnd == null) {
-                System.err.println("无法获取窗口句柄，尝试备用方法...");
+                Logger("DEBUG", "取不到窗口句柄，尝试备用方法");
                 hwnd = getWindowHandleByTitle(stage);
                 if (hwnd == null) {
-                    System.err.println("备用方法也失败了，无法执行窗口抖动");
+                    Logger("WARNING", "备用方法也取不到窗口句柄，无法执行窗口抖动");
                     return;
                 }
             }
 
             WinDef.RECT rect = new WinDef.RECT();
             if (!User32Extra.INSTANCE.GetWindowRect(hwnd, rect)) {
-                System.err.println("无法获取窗口位置");
+                Logger("WARNING", "无法获取窗口位置，抖动中止");
                 return;
             }
 
@@ -273,7 +275,7 @@ public class WinOpsManager {
                     SWP_NOSIZE | SWP_NOZORDER);
 
         } catch (Exception e) {
-            System.err.println("窗口抖动执行失败: " + e.getMessage());
+            Logger("WARNING", "窗口抖动执行失败: " + e.getMessage());
         }
     }
 
@@ -406,7 +408,7 @@ public class WinOpsManager {
                 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
         } catch (Exception e) {
-            System.err.println("设置窗口置顶失败: " + e.getMessage());
+            Logger("WARNING", "设置窗口置顶失败: " + e.getMessage());
         }
     }
 
@@ -452,7 +454,7 @@ public class WinOpsManager {
             LoggerManager.Logger("DEBUG", "跳过任务栏: " + skip
                     + ", exStyle=0x" + Integer.toHexString(newStyle));
         } catch (Exception e) {
-            System.err.println("设置任务栏显示失败: " + e.getMessage());
+            Logger("WARNING", "设置任务栏显示失败: " + e.getMessage());
         }
     }
 
@@ -505,7 +507,7 @@ public class WinOpsManager {
             if (hwnd == null) return;
             User32.INSTANCE.SetForegroundWindow(hwnd);
         } catch (Exception e) {
-            System.err.println("设置前台窗口失败: " + e.getMessage());
+            Logger("WARNING", "设置前台窗口失败: " + e.getMessage());
         }
     }
 

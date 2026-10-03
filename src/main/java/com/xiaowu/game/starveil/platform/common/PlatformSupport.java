@@ -44,8 +44,9 @@ public final class PlatformSupport {
         try {
             SystemManagerFactory.getInstance().showError("不支持的平台", message);
         } catch (Throwable t) {
-            LoggerManager.Logger("ERROR", "无法显示不支持的平台提示: " + t);
-            System.err.println(message);
+            // 连错误对话框都弹不出来时，至少把完整提示写进日志 ——
+            // 用户在控制台看到的也是同一份内容（LoggerManager 接管了 System.out）
+            LoggerManager.Logger("ERROR", "无法显示不支持的平台提示: " + t + "\n" + message);
         }
     }
 }

@@ -899,7 +899,7 @@ public class ChatManager {
         try {
             AudioManager.getInstance().playSound(path, false);
         } catch (Exception ex) {
-            System.err.println("播放配音失败: " + ex.getMessage());
+            Logger("WARNING", "播放配音失败: " + ex.getMessage());
         }
     }
 

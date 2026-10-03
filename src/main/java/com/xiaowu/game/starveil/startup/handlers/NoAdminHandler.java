@@ -1,5 +1,7 @@
 package com.xiaowu.game.starveil.startup.handlers;
 
+import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
+
 import com.xiaowu.game.starveil.startup.BaseStartupArgumentHandler;
 import com.xiaowu.game.starveil.startup.ExecutionMode;
 import com.xiaowu.game.starveil.config.LauncherConfig;
@@ -27,7 +29,7 @@ public class NoAdminHandler extends BaseStartupArgumentHandler {
 
             return true;
         } catch (Exception e) {
-            System.err.println("NoAdminHandler 处理失败: " + e.getMessage());
+            Logger("ERROR", "NoAdminHandler 处理失败: " + e.getMessage());
             e.printStackTrace();
             return false;
         }

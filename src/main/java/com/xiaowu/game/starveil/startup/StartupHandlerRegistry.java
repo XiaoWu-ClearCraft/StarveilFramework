@@ -3,6 +3,8 @@ package com.xiaowu.game.starveil.startup;
 import java.util.*;
 import java.util.concurrent.*;
 
+import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
+
 /**
  * 启动参数处理器注册管理器
  * 负责注册、解析和执行启动参数处理器
@@ -89,7 +91,7 @@ public class StartupHandlerRegistry {
                     value = args[i + 1];
                     i++; // 跳过参数值
                 } else {
-                    System.err.println("错误: 参数 -" + argumentName + " 需要一个值");
+                    Logger("ERROR", "参数 -" + argumentName + " 需要一个值");
                     continue;
                 }
             }
@@ -110,15 +112,15 @@ public class StartupHandlerRegistry {
             final String value = extractValue(handler, args);
 
             try {
-                System.out.println("执行阻塞处理器: -" + argumentName);
+                Logger("DEBUG", "执行阻塞处理器: -" + argumentName);
                 boolean success = handler.handle(value, args);
                 if (!success) {
-                    System.err.println("参数处理器 -" + argumentName + " 执行失败");
+                    Logger("ERROR", "参数处理器 -" + argumentName + " 执行失败");
                 } else {
-                    System.out.println("阻塞处理器 -" + argumentName + " 执行完成");
+                    Logger("DEBUG", "阻塞处理器 -" + argumentName + " 执行完成");
                 }
             } catch (Exception e) {
-                System.err.println("参数处理器 -" + argumentName + " 执行失败: " + e.getMessage());
+                Logger("ERROR", "参数处理器 -" + argumentName + " 执行失败: " + e.getMessage());
                 e.printStackTrace();
             }
         }
@@ -131,7 +133,7 @@ public class StartupHandlerRegistry {
             try {
                 handler.handle(value, args);
             } catch (Exception e) {
-                System.err.println("参数处理器 -" + argumentName + " 执行失败: " + e.getMessage());
+                Logger("ERROR", "参数处理器 -" + argumentName + " 执行失败: " + e.getMessage());
                 e.printStackTrace();
             }
         }
@@ -146,10 +148,10 @@ public class StartupHandlerRegistry {
                 try {
                     boolean success = handler.handle(value, args);
                     if (!success) {
-                        System.err.println("参数处理器 -" + argumentName + " 执行失败");
+                        Logger("ERROR", "参数处理器 -" + argumentName + " 执行失败");
                     }
                 } catch (Exception e) {
-                    System.err.println("参数处理器 -" + argumentName + " 执行失败: " + e.getMessage());
+                    Logger("ERROR", "参数处理器 -" + argumentName + " 执行失败: " + e.getMessage());
                     e.printStackTrace();
                 }
             }

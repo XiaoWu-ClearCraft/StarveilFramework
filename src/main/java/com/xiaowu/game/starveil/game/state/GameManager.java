@@ -536,7 +536,7 @@ public class GameManager {
         this.currentScene = newScene;
 
         if (rootContainer == null || !(newScene.getRoot() instanceof Pane newRoot)) {
-            System.err.println("错误: rootContainer 为 null 或新根节点不是 Pane");
+            Logger("ERROR", "无法接管新场景：rootContainer 为 null 或新根节点不是 Pane");
             setupGlobalKeyListeners(newScene);
             return;
         }
@@ -607,7 +607,8 @@ public class GameManager {
 
                     Platform.runLater(() -> {
                         SystemManagerFactory.getInstance().shakeWindow(primaryStage, 2);
-                        AchievementManager.unlockAchievement("exit");
+                        // 不在这里解锁 "exit" 之类的成就：框架不预设成就 ID，
+                        // 由内容自己决定什么时候解锁哪一条
                     });
                 } else {
                     performNormalExit();

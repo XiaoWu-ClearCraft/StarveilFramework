@@ -1,5 +1,7 @@
 package com.xiaowu.game.starveil.startup.handlers;
 
+import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
+
 import com.xiaowu.game.starveil.platform.console.ConsoleColor;
 import com.xiaowu.game.starveil.platform.console.ConsoleProvider;
 import com.xiaowu.game.starveil.platform.console.ConsoleProviderFactory;
@@ -49,7 +51,7 @@ public class CmdTest extends BaseStartupArgumentHandler {
             // keepAlive 返回后继续执行（不退出程序）
             return true;
         } catch (Exception e) {
-            System.err.println("CmdTest 处理失败: " + e.getMessage());
+            Logger("ERROR", "CmdTest 处理失败: " + e.getMessage());
             e.printStackTrace();
             return false;
         }

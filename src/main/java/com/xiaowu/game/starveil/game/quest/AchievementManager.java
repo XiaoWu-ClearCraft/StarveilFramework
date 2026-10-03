@@ -39,23 +39,38 @@ public class AchievementManager {
         return instance;
     }
 
-     
+    /**
+     * 解锁一个成就。
+     *
+     * <p><b>该在什么时候解锁由内容决定</b>，框架不预设任何成就 ID ——
+     * 定义整份来自内容的 {@code starveil:data/config/achievements.json}。
+     * 传进来的 ID 不存在就是写错了，所以这里按 ERROR 记录。
+     */
     public static void unlockAchievement(String achievementId) {
         if (unlockedAchievements.contains(achievementId)) return;
+        // 成就定义是懒加载的（第一次拿实例时才读文件）。内容可能在非常早的时候
+        // 就想解锁一条（例如 content.init.init 里解锁「首次启动」），
+        // 所以这里要先确保单例建好、定义已加载，否则会误报「ID 不存在」。
+        getInstance();
         Achievement ach = achievements.get(achievementId);
         if (ach == null) {
-            // 框架自己会请求 "welcome" / "exit" 这类成就，但**内容不一定定义了它们** ——
-            // 成就定义整份由内容提供。所以这只是「这条成就这款游戏没有」，
-            // 不是错误；用 ERROR 刷日志会让真正的问题被淹没。
-            Logger("DEBUG", "成就 '" + achievementId + "' 未在内容中定义，跳过解锁");
+            Logger("ERROR", "成就ID不存在: " + achievementId
+                    + "（成就定义由内容提供，检查 achievements.json 里是否漏了它）");
             return;
         }
         unlockedAchievements.add(achievementId);
         saveUnlockedAchievements();
 
-         
-        NotificationManager.getInstance()
-                .showNotification("成就解锁!", ach.name, ach.iconPath, 5);
+        // 通知是「锦上添花」：渲染引擎还没就绪时（例如内容在初始化阶段就解锁，
+        // 或在无界面环境里做测试）弹不出来，但成就本身该照常记上。
+        // 不把异常传出去 —— 内容代码不该因为「通知没弹出来」而崩掉。
+        try {
+            NotificationManager.getInstance()
+                    .showNotification("成就解锁!", ach.name, ach.iconPath, 5);
+        } catch (Exception e) {
+            Logger("WARNING", "成就 '" + achievementId + "' 已解锁，但通知未能显示: "
+                    + e.getMessage());
+        }
 
         Logger("INFO", "成就解锁: " + ach.name + " (" + achievementId + ")");
     }
@@ -133,18 +148,6 @@ public class AchievementManager {
         Logger("INFO", "所有成就已重置");
     }
 
-    public void testMultipleAchievements() {
-        new Thread(() -> {
-            try {
-                unlockAchievement("welcome");
-                Thread.sleep(1000);
-                unlockAchievement("first_blood");
-                Thread.sleep(800);
-                unlockAchievement("explorer");
-            } catch (InterruptedException ignored) {}
-        }).start();
-    }
-
      
     private void initialize() {
         ensureDataDirectory();
@@ -182,32 +185,6 @@ public class AchievementManager {
         }
     }
 
-    /**
-     * 内置示例成就。
-     *
-     * <p><b>已不再使用</b>：没提供成就定义时改为留空，不再拿示例数据兜底。
-     * 保留方法体只是为了方便以后需要临时造数据时参考。
-     */
-    @SuppressWarnings("unused")
-    private void createDefaultAchievements() {
-        achievements.put("first_blood", new Achievement("first_blood", "第一滴血", "完成第一次击杀", "/images/achievements/first_blood.png"));
-        achievements.put("welcome", new Achievement("welcome", "欢迎来到游戏", "首次启动游戏", null));
-        achievements.put("explorer", new Achievement("explorer", "探索者", "发现所有隐藏区域", "/images/achievements/explorer.png"));
-        achievements.put("veteran", new Achievement("veteran", "老玩家", "游戏时间达到10小时", null));
-        achievements.put("perfectionist", new Achievement("perfectionist", "完美主义者", "以最高难度完成游戏", "/images/achievements/perfectionist.png"));
-        saveAchievementsDefinitionToFile();
-    }
-
-    private void saveAchievementsDefinitionToFile() {
-        try {
-            Path path = Paths.get(DATA_DIR, "achievements_reference.json");
-            Files.write(path, gson.toJson(achievements).getBytes());
-        } catch (Exception e) {
-            Logger("ERROR", "保存成就参考文件失败: " + e.getMessage());
-        }
-    }
-
-     
     private void loadUnlockedAchievements() {
         Path path = Paths.get(ACHIEVEMENTS_DATA_FILE);
         if (!Files.exists(path)) return;

@@ -34,7 +34,7 @@
 | 章节脚本 | `content/chapter<N>/Chapter<N>.java` | 命名强制，见下 |
 | 地图 | `assets/starveil/data/worlds/*.json` | 世界尺寸、空气墙、NPC、出生点 |
 | 物品定义 | `assets/starveil/data/items/items.json` | |
-| 成就定义 | `assets/starveil/data/config/achievements.json` | 缺失则成就列表留空 |
+| 成就定义 | `assets/starveil/data/config/achievements.json` | 缺失则成就列表留空、主菜单隐藏成就入口 |
 | 任务 / 提示 / 致谢 | `assets/starveil/data/config/*.json` | |
 | 贴图 | `assets/starveil/textures/**` | |
 | 音频 | `assets/starveil/sounds/**` | |
@@ -94,6 +94,19 @@ com.xiaowu.game.starveil.content.chapter<N>.Chapter<N>
 
 例如 `LEFT`、`LEFT:WALK`、`LEFT:LENGTHWAYS`、`LEFT:LENGTHWAYS:WALK:90`。
 支持 `@同级键` 复用配置值。详见 [动画键与玩法模式](#动画键与玩法模式)。
+
+---
+
+### 成就
+
+成就**定义与解锁时机都由内容决定**，框架不预设任何成就 ID：
+
+- 定义：`assets/starveil/data/config/achievements.json`（`id → {id, name, description, iconPath}`）
+- 解锁：在内容代码里调用 `AchievementManager.unlockAchievement("你的id")`，
+  例如在 `content.init.init()` 里解锁「首次启动」，或在章节脚本里按剧情进度解锁
+- ID 未定义时解锁会记 `ERROR` —— 用它来发现自己拼错了成就 ID
+
+缺这份定义文件时成就列表留空、主菜单隐藏成就入口，不会报错。
 
 ---
 

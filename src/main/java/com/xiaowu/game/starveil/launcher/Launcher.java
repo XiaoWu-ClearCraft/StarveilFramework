@@ -87,8 +87,8 @@ public class Launcher {
         try {
             Application.launch(Menu.class, args);
         } catch (Exception e) {
-            Logger("ERROR", "launch语句出错");
-            System.err.println("Menu.start方法发生异常:");
+            // 堆栈要一起进日志：只记一句「出错了」等于没记
+            Logger("ERROR", "Menu.start 方法发生异常: " + e);
             e.printStackTrace();
             throw new RuntimeException(e);
         }

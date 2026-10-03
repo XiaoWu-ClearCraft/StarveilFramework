@@ -174,7 +174,9 @@ public class AppEntry {
                             "\n请将此信息反馈给开发者以便解决此问题");
                 System.exit(1);
             } catch (Exception e1) {
-                System.out.println("您的桌面环境似乎有异常 应用程序报错如下\n" + e.getMessage() + "\n桌面环境错误:\n"+ e1.getMessage());
+                Logger("ERROR", "桌面环境异常，连错误对话框都无法显示。"
+                        + "\n应用错误: " + e.getMessage()
+                        + "\n桌面环境错误: " + e1.getMessage());
                 System.exit(1);
             }
         }
