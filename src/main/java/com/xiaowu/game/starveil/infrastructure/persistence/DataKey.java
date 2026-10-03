@@ -62,25 +62,25 @@ public record DataKey<T>(String namespace,
      * 创建一个键并<b>立即注册</b>。
      *
      * <p>重复注册会替换注册表里的定义（内容可以重定义框架内置键的默认值），
-     * 但<b>不改变已发出句柄</b>。
+     * 但<b>不改变已发出句柄</b>。同名键不允许换类型：那几乎一定是
+     * 「两处各自声明了同名键」，必须报错而不是让后者静默覆盖。
      *
-     * <p>同名键不允许换类型：那几乎一定是「两处各自声明了同名键」，
-     * 必须报错而不是让后者静默覆盖。
-     *
-     * @param defaultValue 默认值，其 java 类型决定键的类型；
-     *                     不允许 {@code null}（类型无从推断）
+     * @param defaultValue 默认值；{@code null} 表示「没有默认值」，读取时按类型取零值。
+     *                     非 null 时类型必须与 {@code valueType} 一致
+     * @param valueType    值类型，{@code int.class} / {@code Integer.class} 都可以
      */
     public static <T> DataKey<T> of(String namespace,
                                     String name,
                                     T defaultValue,
+                                    Class<?> valueType,
                                     DataKeyFlag... flags) {
-        return DataKeyRegistry.register(namespace, name, defaultValue, flags);
+        return DataKeyRegistry.register(namespace, name, defaultValue, valueType, flags);
     }
 
     // ==================== 读取 ====================
 
     /**
-     * 读取当前值。未设置时返回默认值。
+     * 读取当前值。未设置时返回默认值（注册时传了 {@code null} 就返回 {@code null}）。
      *
      * @throws ClassCastException 声明处的泛型写错时（例如把 int 键声明成
      *                            {@code DataKey<String>}）会在调用方爆掉，

@@ -3,6 +3,8 @@ import com.xiaowu.game.starveil.infrastructure.ContentConfig;
 
 import com.xiaowu.game.starveil.infrastructure.audio.AudioManager;
 import com.xiaowu.game.starveil.infrastructure.audio.BGMManager;
+import com.xiaowu.game.starveil.infrastructure.i18n.I18n;
+import com.xiaowu.game.starveil.infrastructure.i18n.LanguageSettings;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataKey;
 import com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys;
@@ -19,6 +21,7 @@ import com.xiaowu.game.starveil.ui.overlay.NotificationManager;
 import com.xiaowu.game.starveil.ui.overlay.PopupManager;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +39,22 @@ public class SettingManager {
     private ButtonHandle activeCategoryButton = null;
     private Object mainContainer;
     private Object settingsScrollPane;
+
+    /**
+     * {@link #createRoot()} 返回的根节点。
+     *
+     * <p>留着它是为了让调用方在「重建界面」时能把旧层摘下来 ——
+     * 只靠创建时的局部变量，切换语言后就会找不到该移除谁。
+     */
+    private Object root;
+
+    /**
+     * 语言切换后的回调。
+     *
+     * <p>切换语言要重建整个界面（所有文字都变了），而「重建」必须由持有设置层
+     * 父节点的调用方来做 —— 本类只负责把新语言落盘并通知出去。
+     */
+    private java.util.function.Consumer<String> onLanguageChanged;
 
     // 当前设置的值（用于取消时恢复）
     private Map<String, Object> currentSettings = new HashMap<>();
@@ -65,11 +84,17 @@ public class SettingManager {
      */
     public Object createRoot() {
         Object root = renderEngine.createStackPane();
+        this.root = root;
 
         // 半透明遮罩层
         Object overlay = renderEngine.createStackPane();
         renderEngine.setBackground(overlay, "-fx-background-color: rgba(0,0,0,0.5);");
         renderEngine.setMouseTransparent(overlay, true);
+
+        // 面板缓存作废：语言切换会重建整个界面，缓存里的文字是旧语言的
+        cachedKeyPanel = null;
+        cachedAudioPanel = null;
+        cachedDisplayPanel = null;
 
         // 主容器
         mainContainer = renderEngine.createVBox(0, 0);
@@ -84,7 +109,7 @@ public class SettingManager {
 
         // 标题
         LabelHandle titleHandle = renderEngine.createLabel(
-            "设置",
+            tr("framework.setting.title", "设置"),
             TextStyle.title(32, renderEngine.createColor("#FF69B4"))
         );
         Object titleLabel = titleHandle.getNativeHandle();
@@ -94,9 +119,9 @@ public class SettingManager {
         renderEngine.setAlignment(categoryBox, "center");
         renderEngine.setPadding(categoryBox, 20, 0, 20, 0);
 
-        ButtonHandle keyButton = createCategoryButton("按键", true);
-        ButtonHandle audioButton = createCategoryButton("音频", false);
-        ButtonHandle displayButton = createCategoryButton("显示", false);
+        ButtonHandle keyButton = createCategoryButton(CATEGORY_KEYS, true);
+        ButtonHandle audioButton = createCategoryButton(CATEGORY_AUDIO, false);
+        ButtonHandle displayButton = createCategoryButton(CATEGORY_DISPLAY, false);
 
         renderEngine.addChild(categoryBox, keyButton.getNativeHandle());
         renderEngine.addChild(categoryBox, audioButton.getNativeHandle());
@@ -123,13 +148,13 @@ public class SettingManager {
         renderEngine.setAlignment(bottomBox, "center_right");
         renderEngine.setPadding(bottomBox, 20, 0, 0, 0);
 
-        ButtonHandle cancelButton = createStyledButton("取消", renderEngine.createColor("#A9A9A9"));
+        ButtonHandle cancelButton = createStyledButton(tr("framework.setting.cancel", "取消"), renderEngine.createColor("#A9A9A9"));
         renderEngine.setButtonAction(cancelButton, () -> closeWithoutSave());
 
-        ButtonHandle applyButton = createStyledButton("应用", renderEngine.createColor("#FFA500"));
+        ButtonHandle applyButton = createStyledButton(tr("framework.setting.apply", "应用"), renderEngine.createColor("#FFA500"));
         renderEngine.setButtonAction(applyButton, () -> applySettings());
 
-        ButtonHandle confirmButton = createStyledButton("确定", renderEngine.createColor("#FF69B4"));
+        ButtonHandle confirmButton = createStyledButton(tr("framework.setting.confirm", "确定"), renderEngine.createColor("#FF69B4"));
         renderEngine.setButtonAction(confirmButton, () -> saveAndClose());
 
         renderEngine.addChild(bottomBox, cancelButton.getNativeHandle());
@@ -154,6 +179,60 @@ public class SettingManager {
 
     public void setOnClose(Runnable callback) {
         this.onCloseCallback = callback;
+    }
+
+    /** {@link #createRoot()} 建出来的根节点；还没建时为 {@code null}。 */
+    public Object getRootOrNull() {
+        return root;
+    }
+
+    /**
+     * 设置语言切换回调。
+     *
+     * <p>回调参数是切换后的语言代码。调用方应当<b>重建整个设置界面</b>
+     * （所有文字都变了，只换几处文本会留下一半旧语言一半新语言的界面），
+     * 并且要保证重建时拿到的 {@code I18n} 已经是新语言。
+     */
+    public void setOnLanguageChanged(java.util.function.Consumer<String> callback) {
+        this.onLanguageChanged = callback;
+    }
+
+    /**
+     * 仅测试使用：把某个分类的面板准备好并显示出来。
+     *
+     * <p>正常流程是玩家点分类按钮，但那需要模拟鼠标事件、还会动到按钮样式。
+     * 测试要验的是「分类里的内容对不对」，直接换面板更直接，也不会因为
+     * 按钮样式的改动而误报。
+     *
+     * @param category 分类标识（{@code framework.setting.tab.*}）
+     */
+    void showPanelForTest(String category) {
+        switch (category) {
+            case CATEGORY_KEYS -> {
+                if (cachedKeyPanel == null) cachedKeyPanel = createKeySettingsPanel();
+                switchSettingsPanel(cachedKeyPanel);
+            }
+            case CATEGORY_AUDIO -> {
+                if (cachedAudioPanel == null) cachedAudioPanel = createAudioSettingsPanel();
+                switchSettingsPanel(cachedAudioPanel);
+            }
+            case CATEGORY_DISPLAY -> {
+                if (cachedDisplayPanel == null) cachedDisplayPanel = createDisplaySettingsPanel();
+                switchSettingsPanel(cachedDisplayPanel);
+            }
+            default -> LoggerManager.Logger("WARNING", "未知的设置分类: " + category);
+        }
+    }
+
+    /**
+     * 取界面文案：先查语言表，查不到就用给定的中文原文。
+     *
+     * <p>为什么不像别处那样直接用 {@code I18n.get(key)}：那个方法找不到键时返回
+     * <b>键名本身</b>，界面会显示一串 {@code framework.setting.title}。
+     * 设置界面是玩家一定会看到的界面，宁可回退到写死的中文原文，也不要露键名。
+     */
+    private static String tr(String key, String fallback) {
+        return I18n.getInstance().getOrDefault(key, fallback);
     }
 
     public void saveAndClose() {
@@ -182,9 +261,20 @@ public class SettingManager {
         saveAndClose();
     }
 
-    private ButtonHandle createCategoryButton(String text, boolean isActive) {
+    /** 分类标识（同时是按钮文案的翻译键后缀）。 */
+    private static final String CATEGORY_KEYS = "framework.setting.tab.keys";
+    private static final String CATEGORY_AUDIO = "framework.setting.tab.audio";
+    private static final String CATEGORY_DISPLAY = "framework.setting.tab.display";
+
+    /** 分类标识 → 中文原文（翻译缺失时的回退）。 */
+    private static final Map<String, String> CATEGORY_FALLBACK = Map.of(
+            CATEGORY_KEYS, "按键",
+            CATEGORY_AUDIO, "音频",
+            CATEGORY_DISPLAY, "显示");
+
+    private ButtonHandle createCategoryButton(String category, boolean isActive) {
         ButtonHandle handle = renderEngine.createButton(
-            text,
+            tr(category, CATEGORY_FALLBACK.getOrDefault(category, category)),
             new TextStyle("System", 16, false, false,
                 isActive ? renderEngine.createColor("#FFFFFF") : renderEngine.createColor("#FF69B4"),
                 0, 1.5),
@@ -207,11 +297,11 @@ public class SettingManager {
             activeCategoryButton = handle;
         }
 
-        // 保存分类信息到用户数据
-        handle.getNativeHandle();
-        renderEngine.setUserData(handle.getNativeHandle(), text);
+        // userData 存的是【分类标识】而不是按钮上的文字：
+        // 文字会随语言变，分类标识不会
+        renderEngine.setUserData(handle.getNativeHandle(), category);
 
-        renderEngine.setButtonAction(handle, () -> switchCategory(handle, text));
+        renderEngine.setButtonAction(handle, () -> switchCategory(handle, category));
         return handle;
     }
 
@@ -223,18 +313,20 @@ public class SettingManager {
         activeCategoryButton = clickedButton;
 
         switch (category) {
-            case "按键":
+            case CATEGORY_KEYS:
                 if (cachedKeyPanel == null) cachedKeyPanel = createKeySettingsPanel();
                 switchSettingsPanel(cachedKeyPanel);
                 break;
-            case "音频":
+            case CATEGORY_AUDIO:
                 if (cachedAudioPanel == null) cachedAudioPanel = createAudioSettingsPanel();
                 switchSettingsPanel(cachedAudioPanel);
                 break;
-            case "显示":
+            case CATEGORY_DISPLAY:
                 if (cachedDisplayPanel == null) cachedDisplayPanel = createDisplaySettingsPanel();
                 switchSettingsPanel(cachedDisplayPanel);
                 break;
+            default:
+                LoggerManager.Logger("WARNING", "未知的设置分类: " + category);
         }
     }
 
@@ -270,30 +362,31 @@ public class SettingManager {
             "-fx-background-color: rgba(255, 255, 255, 0.7); -fx-background-radius: 15;");
 
         LabelHandle panelTitleHandle = renderEngine.createLabel(
-            "按键绑定",
+            tr("framework.setting.keys.title", "按键绑定"),
             TextStyle.title(20, renderEngine.createColor("#FF69B4"))
         );
 
         Object keyGrid = renderEngine.createGridPane(20, 15);
         renderEngine.setAlignment(keyGrid, "center");
 
-        addKeyBindingRow(keyGrid, 0, "向上移动", "MOVE_UP");
-        addKeyBindingRow(keyGrid, 1, "向下移动", "MOVE_DOWN");
-        addKeyBindingRow(keyGrid, 2, "向左移动", "MOVE_LEFT");
-        addKeyBindingRow(keyGrid, 3, "向右移动", "MOVE_RIGHT");
-        addKeyBindingRow(keyGrid, 4, "加速", "ACCELERATE");
-        addKeyBindingRow(keyGrid, 5, "交互", "INTERACT");
-        addKeyBindingRow(keyGrid, 6, "法阵攻击", "MAGIC_ATTACK");
-        addKeyBindingRow(keyGrid, 7, "背包", "BACKPACK");
+        addKeyBindingRow(keyGrid, 0, "framework.setting.key.move_up", "向上移动", "MOVE_UP");
+        addKeyBindingRow(keyGrid, 1, "framework.setting.key.move_down", "向下移动", "MOVE_DOWN");
+        addKeyBindingRow(keyGrid, 2, "framework.setting.key.move_left", "向左移动", "MOVE_LEFT");
+        addKeyBindingRow(keyGrid, 3, "framework.setting.key.move_right", "向右移动", "MOVE_RIGHT");
+        addKeyBindingRow(keyGrid, 4, "framework.setting.key.accelerate", "加速", "ACCELERATE");
+        addKeyBindingRow(keyGrid, 5, "framework.setting.key.interact", "交互", "INTERACT");
+        addKeyBindingRow(keyGrid, 6, "framework.setting.key.magic_attack", "法阵攻击", "MAGIC_ATTACK");
+        addKeyBindingRow(keyGrid, 7, "framework.setting.key.backpack", "背包", "BACKPACK");
 
         renderEngine.addChild(panel, panelTitleHandle.getNativeHandle());
         renderEngine.addChild(panel, keyGrid);
         return panel;
     }
 
-    private void addKeyBindingRow(Object grid, int row, String label, String function) {
+    private void addKeyBindingRow(Object grid, int row, String labelKey, String labelFallback,
+                                  String function) {
         LabelHandle nameLabelHandle = renderEngine.createLabel(
-            label,
+            tr(labelKey, labelFallback),
             new TextStyle("System", 14, false, false, renderEngine.createColor("#8B4513"), 0, 1.5)
         );
 
@@ -311,7 +404,7 @@ public class SettingManager {
         keyLabels.put(function, keyLabelHandle);
 
         ButtonHandle rebindButton = renderEngine.createButton(
-            "更改",
+            tr("framework.setting.rebind", "更改"),
             TextStyle.simple(14, renderEngine.createColor("#FFFFFF")),
             renderEngine.createColor(ContentConfig.primaryColor()),
             renderEngine.createColor(ContentConfig.secondaryColor()),
@@ -319,6 +412,8 @@ public class SettingManager {
         );
         renderEngine.setSize(rebindButton.getNativeHandle(), 80, 35);
         renderEngine.setButtonAction(rebindButton, () -> startKeyBinding(function, rebindButton));
+        // 记录这个按钮绑的是哪个功能 —— 重绑过程中会被临时改成提示文字，靠它恢复
+        renderEngine.setUserData(rebindButton.getNativeHandle(), function);
 
         renderEngine.addToGrid(grid, nameLabelHandle.getNativeHandle(), 0, row);
         renderEngine.addToGrid(grid, keyLabelHandle.getNativeHandle(), 1, row);
@@ -327,6 +422,11 @@ public class SettingManager {
 
     private void startKeyBinding(String function, ButtonHandle button) {
         if (waitingForInputButton != null && waitingForInputButton != button) {
+            // 之前那个按钮还停在「等待按键」状态，恢复它自己的功能标识
+            String previous = (String) renderEngine.getUserData(waitingForInputButton.getNativeHandle());
+            if (previous != null) {
+                renderEngine.setUserData(waitingForInputButton.getNativeHandle(), previous);
+            }
             renderEngine.setButtonAction(waitingForInputButton, () -> {
                 String f = (String) renderEngine.getUserData(waitingForInputButton.getNativeHandle());
                 if (f != null) startKeyBinding(f, waitingForInputButton);
@@ -339,7 +439,8 @@ public class SettingManager {
         waitingForInputButton = button;
         waitingFunction = function;
 
-        renderEngine.setUserData(button.getNativeHandle(), "等待按键");
+        // 只改按钮上的文字，userData 继续保存功能标识（见 addKeyBindingRow）
+        renderEngine.setButtonText(button, tr("framework.setting.rebinding", "等待按键"));
         renderEngine.setBackground(button.getNativeHandle(),
             "-fx-background-color: #FFB6C1; -fx-background-radius: 10;");
     }
@@ -356,6 +457,9 @@ public class SettingManager {
             renderEngine.setLabelText(keyLabel, fxKeyCode.getName());
         }
 
+        // 恢复按钮文字，并把功能标识放回 userData
+        renderEngine.setButtonText(waitingForInputButton, tr("framework.setting.rebind", "更改"));
+        renderEngine.setUserData(waitingForInputButton.getNativeHandle(), waitingFunction);
         renderEngine.setBackground(waitingForInputButton.getNativeHandle(),
             "-fx-background-color: " + ContentConfig.primaryColor() + "; " +
             "-fx-background-radius: 10;");
@@ -390,7 +494,7 @@ public class SettingManager {
             "-fx-background-color: rgba(255, 255, 255, 0.7); -fx-background-radius: 15;");
 
         LabelHandle panelTitleHandle = renderEngine.createLabel(
-            "显示设置",
+            tr("framework.setting.display.title", "显示设置"),
             TextStyle.title(20, renderEngine.createColor("#FF69B4"))
         );
 
@@ -399,7 +503,7 @@ public class SettingManager {
 
         // 比例设置
         LabelHandle ratioLabelHandle = renderEngine.createLabel(
-            "画面比例",
+            tr("framework.setting.aspect_ratio", "画面比例"),
             new TextStyle("System", 14, false, false, renderEngine.createColor("#8B4513"), 0, 1.5)
         );
 
@@ -422,7 +526,7 @@ public class SettingManager {
 
         // 全屏设置
         LabelHandle fullscreenLabelHandle = renderEngine.createLabel(
-            "全屏模式",
+            tr("framework.setting.fullscreen", "全屏模式"),
             new TextStyle("System", 14, false, false, renderEngine.createColor("#8B4513"), 0, 1.5)
         );
 
@@ -438,22 +542,28 @@ public class SettingManager {
 
         // 全屏方式设置
         LabelHandle fullscreenModeLabelHandle = renderEngine.createLabel(
-            "全屏方式",
+            tr("framework.setting.fullscreen_mode", "全屏方式"),
             new TextStyle("System", 14, false, false, renderEngine.createColor("#8B4513"), 0, 1.5)
         );
 
+        // 下拉框里显示的是翻译后的模式名，存进配置的仍是稳定标识
         ComboBoxHandle fullscreenModeHandle = renderEngine.createComboBox(
-            List.of("无边框窗口", "全屏"),
+            List.of(fullscreenModeDisplay(FrameworkDataKeys.FULLSCREEN_MODE_BORDERLESS),
+                    fullscreenModeDisplay(FrameworkDataKeys.FULLSCREEN_MODE_EXCLUSIVE)),
             200
         );
         String currentFullscreenMode = FrameworkDataKeys.FULLSCREEN_MODE.get();
-        renderEngine.setComboBoxSelectedValue(fullscreenModeHandle, currentFullscreenMode);
+        renderEngine.setComboBoxSelectedValue(fullscreenModeHandle,
+                fullscreenModeDisplay(currentFullscreenMode));
         renderEngine.setBackground(fullscreenModeHandle.getNativeHandle(),
             "-fx-background-color: #FFE4E1; -fx-background-radius: 10;");
 
         renderEngine.setComboBoxOnAction(fullscreenModeHandle, () -> {
-            String selectedMode = renderEngine.getComboBoxSelectedValue(fullscreenModeHandle);
-            currentSettings.put("fullscreenMode", selectedMode);
+            String selected = renderEngine.getComboBoxSelectedValue(fullscreenModeHandle);
+            String mode = fullscreenModeOfDisplay(selected);
+            if (mode != null) {
+                currentSettings.put("fullscreenMode", mode);
+            }
         });
 
         renderEngine.addToGrid(displayGrid, fullscreenModeLabelHandle.getNativeHandle(), 0, 2);
@@ -461,7 +571,7 @@ public class SettingManager {
 
         // 文本速度设置
         LabelHandle textSpeedLabelHandle = renderEngine.createLabel(
-            "文本速度",
+            tr("framework.setting.text_speed", "文本速度"),
             new TextStyle("System", 14, false, false, renderEngine.createColor("#8B4513"), 0, 1.5)
         );
         int currentSpeed = FrameworkDataKeys.TEXT_SPEED.get();
@@ -488,9 +598,121 @@ public class SettingManager {
         renderEngine.addToGrid(displayGrid, textSpeedHandle.getNativeHandle(), 1, 3);
         renderEngine.addToGrid(displayGrid, textSpeedValueHandle.getNativeHandle(), 2, 3);
 
+        // 语言切换：只有内容提供了语言列表才显示这一行
+        addLanguageRow(displayGrid, 4);
+
         renderEngine.addChild(panel, panelTitleHandle.getNativeHandle());
         renderEngine.addChild(panel, displayGrid);
         return panel;
+    }
+
+    /**
+     * 添加「界面语言」一行。
+     *
+     * <p><b>内容没提供语言列表时整行都不显示</b> —— 显示一个只有一项的下拉框，
+     * 或者显示一个切了没反应的控件，都比不显示更让人困惑（见
+     * {@code ContentConfig.addLanguage}）。
+     *
+     * <p>选中即刻生效：语言属于「看得见的东西」，改完要等点确定才变，玩家
+     * 反而不知道刚才选了什么。切换后由 {@link #onLanguageChanged} 通知调用方
+     * 重建界面。
+     */
+    private void addLanguageRow(Object grid, int row) {
+        if (!LanguageSettings.isSwitchable()) {
+            LoggerManager.Logger("DEBUG",
+                    "内容未提供可选语言，设置界面不显示语言切换");
+            return;
+        }
+
+        LabelHandle labelHandle = renderEngine.createLabel(
+            tr("framework.setting.language", "界面语言"),
+            new TextStyle("System", 14, false, false, renderEngine.createColor("#8B4513"), 0, 1.5)
+        );
+
+        // 当前语言：优先看已经生效的语言表，其次才是存下来的偏好。
+        // 重建界面时 I18n 已经加载好新语言，所以这里读到的就是「现在看到的语言」。
+        String active = I18n.getInstance().language();
+        if (!LanguageSettings.isAvailable(active)) {
+            active = LanguageSettings.current();
+        }
+        final String currentLang = active;
+
+        Object languageRow = renderEngine.createHBox(10, 0);
+        renderEngine.setAlignment(languageRow, "center_left");
+
+        // 用横向排列的可点击文字而不是下拉框：此处没有下拉框的样式控制能力，
+        // 而语言数量通常只有两三个，一次全列出来反而少一次点击。
+        for (Map.Entry<String, String> option : LanguageSettings.options().entrySet()) {
+            final String code = option.getKey();
+            boolean isCurrent = LanguageSettings.same(code, currentLang);
+
+            LabelHandle chip = renderEngine.createLabel(
+                option.getValue(),
+                new TextStyle("System", 15, isCurrent, false,
+                    renderEngine.createColor(isCurrent ? "#FF69B4" : "#8B4513"), 0, 1.5)
+            );
+            renderEngine.setPadding(chip.getNativeHandle(), 6, 12, 6, 12);
+            renderEngine.setBackground(chip.getNativeHandle(),
+                "-fx-background-color: " + (isCurrent ? "#FFE4E1" : "rgba(255,255,255,0.55)") + "; " +
+                "-fx-background-radius: 10; " +
+                "-fx-border-color: " + ContentConfig.primaryColor() + "; " +
+                "-fx-border-width: " + (isCurrent ? 2 : 1) + "; " +
+                "-fx-border-radius: 10;");
+            renderEngine.setUserData(chip.getNativeHandle(), code);
+            renderEngine.setCursorHand(chip.getNativeHandle());
+            renderEngine.setLabelClickAction(chip, () -> selectLanguage(code));
+
+            renderEngine.addChild(languageRow, chip.getNativeHandle());
+        }
+
+        renderEngine.addToGrid(grid, labelHandle.getNativeHandle(), 0, row);
+        renderEngine.addToGrid(grid, languageRow, 1, row);
+    }
+
+    /** 玩家点了某个语言：切换 + 通知调用方重建界面。点了当前语言则什么都不做。 */
+    private void selectLanguage(String code) {
+        if (LanguageSettings.same(code, I18n.getInstance().language())) {
+            return;
+        }
+        if (!LanguageSettings.apply(code)) {
+            // 失败原因已经在 LanguageSettings 里记了日志，这里只提示玩家
+            NotificationManager.getInstance()
+                    .showNotification(tr("framework.setting.language", "界面语言"),
+                            "该语言不可用，已保持当前语言", null, 4);
+            return;
+        }
+        NotificationManager.getInstance()
+                .showNotification(tr("framework.setting.language", "界面语言"),
+                        LanguageSettings.displayName(code), null, 3);
+        if (onLanguageChanged != null) {
+            onLanguageChanged.accept(code);
+        }
+    }
+
+    /** 全屏方式的显示名（随语言变化）。 */
+    private static String fullscreenModeDisplay(String modeId) {
+        return switch (FrameworkDataKeys.normalizeFullscreenMode(modeId)) {
+            case FrameworkDataKeys.FULLSCREEN_MODE_EXCLUSIVE ->
+                    tr("framework.setting.fullscreen_mode.exclusive", "全屏");
+            default ->
+                    tr("framework.setting.fullscreen_mode.borderless", "无边框窗口");
+        };
+    }
+
+    /** 显示名 → 稳定标识；不是已知项时返回 null（不改动设置）。 */
+    private static String fullscreenModeOfDisplay(String displayName) {
+        if (displayName == null) {
+            return null;
+        }
+        if (displayName.equals(tr("framework.setting.fullscreen_mode.borderless", "无边框窗口"))) {
+            return FrameworkDataKeys.FULLSCREEN_MODE_BORDERLESS;
+        }
+        if (displayName.equals(tr("framework.setting.fullscreen_mode.exclusive", "全屏"))) {
+            return FrameworkDataKeys.FULLSCREEN_MODE_EXCLUSIVE;
+        }
+        // 界面文字不是预期值时（例如语言刚切换、缓存面板没重建），退回按标识认
+        String normalized = FrameworkDataKeys.normalizeFullscreenMode(displayName);
+        return normalized;
     }
 
     private Object createAudioSettingsPanel() {

@@ -244,7 +244,7 @@ public final class I18n {
     }
 
     /** 清空（仅测试用）。 */
-    synchronized void resetForTest() {
+    public synchronized void resetForTest() {
         translations.clear();
         fallback.clear();
         fallbackLoaded = false;

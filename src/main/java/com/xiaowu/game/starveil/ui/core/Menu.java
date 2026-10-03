@@ -406,11 +406,25 @@ public class Menu extends Application {
         }
     }
 
-    private void showSettingUI() {
-        // 使用Menu的InputHandler
-        SettingManager settingManager = new SettingManager(inputHandler);
+    private SettingManager settingManager;
+    private InputHandler.KeyEventHandler settingEscHandler;
 
-        Object settingRoot = settingManager.createRoot();
+    private void showSettingUI() {
+        buildSettingUI();
+    }
+
+    /**
+     * 创建设置层并挂到内容层上。
+     *
+     * <p>抽成单独方法是因为<b>切换语言后要整个重建一遍</b>：界面文字全部来自
+     * 语言表，只换几处文本会留下「一半旧语言一半新语言」的界面。
+     */
+    private void buildSettingUI() {
+        // 使用Menu的InputHandler
+        SettingManager manager = new SettingManager(inputHandler);
+        this.settingManager = manager;
+
+        Object settingRoot = manager.createRoot();
 
         // 绑定大小到场景
         if (settingRoot instanceof javafx.scene.layout.Region) {
@@ -419,28 +433,48 @@ public class Menu extends Application {
             region.prefHeightProperty().bind(gameManager.getPrimaryStage().getScene().heightProperty());
         }
 
-        // 添加到内容层
-        if (settingRoot instanceof javafx.scene.Node) {
-            gameManager.getContentWithOverlays().getChildren().add((javafx.scene.Node) settingRoot);
-        }
+        // 语言切换后重建界面：先把旧层摘掉，避免两层重叠。
+        // 摘的时候必须把旧层注册的 ESC 处理器一起注销 —— 否则它仍然生效，
+        // 而它指向的是已经被摘下去的旧层，按 ESC 看起来就像「没反应」。
+        manager.setOnLanguageChanged(code -> javafx.application.Platform.runLater(() -> {
+            if (this.settingManager != manager) {
+                return; // 已经不是当前这一层了（比如刚被关掉），不要重建
+            }
+            teardownSettingUI();
+            buildSettingUI();
+        }));
 
         // 创建ESC事件处理器引用
-        InputHandler.KeyEventHandler settingEscHandler = _ -> settingManager.closeWithoutSave();
+        settingEscHandler = _ -> manager.closeWithoutSave();
 
         // 注册ESC事件处理器
         inputHandler.onKeyPressed(InputHandler.PAUSE_TOGGLE, settingEscHandler);
 
         // 设置关闭回调
-        settingManager.setOnClose(() -> {
-            // 取消注册ESC事件处理器
-            inputHandler.removeKeyPressedHandler(InputHandler.PAUSE_TOGGLE, settingEscHandler);
-            if (settingRoot instanceof javafx.scene.Node) {
-                gameManager.getContentWithOverlays().getChildren().remove((javafx.scene.Node) settingRoot);
-            }
-        });
+        manager.setOnClose(this::teardownSettingUI);
 
         // 设置场景（用于键盘事件监听）
-        settingManager.setupScene(gameManager.getPrimaryStage().getScene());
+        manager.setupScene(gameManager.getPrimaryStage().getScene());
+
+        // 添加到内容层
+        if (settingRoot instanceof javafx.scene.Node) {
+            gameManager.getContentWithOverlays().getChildren().add((javafx.scene.Node) settingRoot);
+        }
+    }
+
+    /** 摘掉当前设置层并注销它的事件处理器。 */
+    private void teardownSettingUI() {
+        if (settingEscHandler != null) {
+            inputHandler.removeKeyPressedHandler(InputHandler.PAUSE_TOGGLE, settingEscHandler);
+            settingEscHandler = null;
+        }
+        if (settingManager != null) {
+            Object root = settingManager.getRootOrNull();
+            if (root instanceof javafx.scene.Node) {
+                gameManager.getContentWithOverlays().getChildren().remove((javafx.scene.Node) root);
+            }
+            settingManager = null;
+        }
     }
 
     private void startGame() {

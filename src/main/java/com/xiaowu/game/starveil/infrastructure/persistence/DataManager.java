@@ -23,18 +23,25 @@ import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logg
  *
  * <h2>键必须先注册</h2>
  *
- * <p>任何键在使用前都要先声明：命名空间 + 键名 + 默认值（类型由默认值的 java
- * 类型决定），例如 {@code defineInt("mymod", "affection", 0)} 声明了键
- * {@code mymod:affection}，一个 {@code int}、默认值 0。
+ * <p>任何键在使用前都要先声明：命名空间 + 键名 + 默认值 + <b>类型</b>，例如
+ * {@code defineInt("mymod", "affection", 0)} 声明了键 {@code mymod:affection}，
+ * 一个 {@code int}、默认值 0。
  *
  * <pre>
  *   // 声明（通常在 content.init.init() 里，或作为 static final 字段）
  *   DataKey&lt;Integer&gt; AFFECTION = DataManager.defineInt("mymod", "affection", 0);
  *
+ *   // 想直接写类型 / 用基本类型 / 不要默认值：
+ *   DataManager.define("mymod", "cant_exit", false, boolean.class, DataKeyFlag.PER_SAVE);
+ *   DataManager.define("mymod", "last_map", null, String.class);   // 无默认值 → 读到 null
+ *
  *   // 读写 —— 不需要再传默认值，也不需要选类型方法
  *   AFFECTION.set(3);
  *   int v = AFFECTION.get();
  * </pre>
+ *
+ * <p><b>默认值必须与声明类型一致</b>（{@code null} 除外，那表示「没有默认值」）：
+ * 不一致会在注册那一刻直接报错，不必等到读取时才发现值解析不了。
  *
  * <p><b>为什么强制注册</b>：
  * <ul>
@@ -97,41 +104,59 @@ public class DataManager {
     }
 
     // ==================== 键注册 ====================
+    //
+    // 类型由调用方显式写明，默认值只提供「没设过值时读到什么」：
+    //
+    //   DataManager.defineBool("mymod", "cant_exit", false, Boolean.class, DataKeyFlag.PER_SAVE);
+    //
+    // 两者不一致（例如把 "true" 当布尔键的默认值）会在注册那一刻直接报错，
+    // 不必等到读取时才发现值解析不了。默认值传 null 表示「没有默认值」。
 
     /** 声明一个字符串键。 */
     public static DataKey<String> defineStr(String namespace, String name, String defaultValue,
                                             DataKeyFlag... flags) {
-        return DataKey.of(namespace, name, defaultValue, flags);
+        return DataKey.of(namespace, name, defaultValue, String.class, flags);
     }
 
     /** 声明一个布尔键。 */
-    public static DataKey<Boolean> defineBool(String namespace, String name, boolean defaultValue,
+    public static DataKey<Boolean> defineBool(String namespace, String name, Boolean defaultValue,
                                               DataKeyFlag... flags) {
-        return DataKey.of(namespace, name, defaultValue, flags);
+        return DataKey.of(namespace, name, defaultValue, Boolean.class, flags);
     }
 
     /** 声明一个整数键。 */
-    public static DataKey<Integer> defineInt(String namespace, String name, int defaultValue,
+    public static DataKey<Integer> defineInt(String namespace, String name, Integer defaultValue,
                                              DataKeyFlag... flags) {
-        return DataKey.of(namespace, name, defaultValue, flags);
+        return DataKey.of(namespace, name, defaultValue, Integer.class, flags);
     }
 
     /** 声明一个长整数键。 */
-    public static DataKey<Long> defineLong(String namespace, String name, long defaultValue,
+    public static DataKey<Long> defineLong(String namespace, String name, Long defaultValue,
                                            DataKeyFlag... flags) {
-        return DataKey.of(namespace, name, defaultValue, flags);
+        return DataKey.of(namespace, name, defaultValue, Long.class, flags);
     }
 
     /** 声明一个双精度浮点键。 */
-    public static DataKey<Double> defineDouble(String namespace, String name, double defaultValue,
+    public static DataKey<Double> defineDouble(String namespace, String name, Double defaultValue,
                                                DataKeyFlag... flags) {
-        return DataKey.of(namespace, name, defaultValue, flags);
+        return DataKey.of(namespace, name, defaultValue, Double.class, flags);
     }
 
     /** 声明一个单精度浮点键。 */
-    public static DataKey<Float> defineFloat(String namespace, String name, float defaultValue,
+    public static DataKey<Float> defineFloat(String namespace, String name, Float defaultValue,
                                              DataKeyFlag... flags) {
-        return DataKey.of(namespace, name, defaultValue, flags);
+        return DataKey.of(namespace, name, defaultValue, Float.class, flags);
+    }
+
+    /**
+     * 声明一个键，类型显式指定（想写基本类型 {@code int.class} 时用这个）。
+     *
+     * @param defaultValue 默认值，可为 {@code null}
+     * @param valueType    值类型，基本类型或包装类型都可以
+     */
+    public static <T> DataKey<T> define(String namespace, String name, T defaultValue,
+                                        Class<?> valueType, DataKeyFlag... flags) {
+        return DataKey.of(namespace, name, defaultValue, valueType, flags);
     }
 
     /** 该键是否已注册。 */
@@ -973,8 +998,12 @@ public class DataManager {
         }
     }
 
-    /** 仅测试使用：清空内存状态与键注册表。 */
-    static void resetForTest() {
+    /**
+     * 仅测试使用：清空内存状态与键注册表。
+     *
+     * <p>公开是为了让其它包的测试也能重置这一层静态状态。
+     */
+    public static void resetForTest() {
         MEMORY_OVERRIDES.clear();
         TEMPORARY.clear();
         dataMap = null;

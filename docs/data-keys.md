@@ -15,7 +15,8 @@
 |---|---|
 | **命名空间** | 内置用 `starveil`（引擎保留），第三方用自己的前缀 |
 | **键名** | 不带前缀的短名，最终形成 `namespace:name` |
-| **默认值** | 值的 java 类型**决定键的类型**，同时就是「没设过值时读到什么」 |
+| **默认值** | 「没设过值时读到什么」；传 `null` 表示**没有默认值**（读取返回 `null`） |
+| **类型** | 显式写明。默认值非 `null` 时必须与类型一致，否则注册即报错 |
 | **标记**（可选） | 存档作用域 / 只读 / 临时，见下 |
 
 ```java
@@ -27,9 +28,13 @@ public static final DataKey<String> HERO =
 public static final DataKey<Integer> AFFECTION =
         DataManager.defineInt("mymod", "affection", 0);
 
-// 存档作用域：允许当前存档覆盖全局默认值
+// 显式写类型（基本类型 / 包装类型都行），并声明为存档作用域
 public static final DataKey<Boolean> CANT_EXIT =
-        DataManager.defineBool("mymod", "cant_exit", false, DataKeyFlag.PER_SAVE);
+        DataManager.define("mymod", "cant_exit", false, boolean.class, DataKeyFlag.PER_SAVE);
+
+// 没有默认值：读到就是 null（区分「没值」与「值是空串」）
+public static final DataKey<String> LAST_MAP =
+        DataManager.define("mymod", "last_map", null, String.class);
 
 // 只读：锁定在默认值，写入被拒绝
 public static final DataKey<String> VERSION =
@@ -40,8 +45,23 @@ public static final DataKey<Boolean> LOADING =
         DataManager.defineBool("mymod", "loading", false, DataKeyFlag.TEMPORARY);
 ```
 
-可用的 `define*`：`defineStr` / `defineBool` / `defineInt` / `defineLong` / `defineDouble` /
-`defineFloat`。也可以直接用 `DataKey.of("mymod", "key", 默认值, 标记...)`。
+可用的便捷方法：`defineStr` / `defineBool` / `defineInt` / `defineLong` / `defineDouble` /
+`defineFloat`。需要直接写类型（例如 `int.class`）时用
+`DataManager.define(namespace, name, 默认值, 类型, 标记...)`
+或 `DataKey.of(namespace, name, 默认值, 类型, 标记...)`。
+
+### 默认值与类型不符会当场报错
+
+类型是**声明的**，不是从默认值猜出来的。两者不一致时注册那一刻就抛异常：
+
+```java
+DataManager.define("mymod", "flag", "true", Boolean.class);
+// → IllegalArgumentException：键 'mymod:flag' 声明类型为 BOOLEAN，
+//   但默认值 'true' (String) 不是这个类型
+```
+
+这样「默认值写错」会在启动阶段暴露，而不是等到某次读取时因为解析失败悄悄回退 ——
+那时已经离出错的地方很远了。数值之间也不做隐式拓宽：`1` 不能当 `Long` 键的默认值。
 
 ### 读写
 
@@ -216,11 +236,42 @@ DataManager.setTutorialCompleted(true);   // 按当前模式自动路由
 | `starveil:setting.sfx_volume` | 见常量 | 音效音量 |
 | `starveil:setting.bgm_interval` | `0` | 背景音乐间隔（毫秒） |
 | `starveil:setting.text_speed` | `50` | 打字机速度（每字毫秒） |
+| `starveil:setting.language` | `zh_cn` | 界面语言。见下 |
 | `starveil:key_bind.*` | `0` | 八个按键绑定（`move_up`、`interact` 等） |
 | `starveil:plugin_consent_given` | `false` | 用户是否已同意加载插件 |
 | `starveil:compatibility_warning_shown` | `false` | 兼容性提示是否已被忽略 |
 | `starveil:gpu_check_ignored` | `false` | 显卡检查是否已被忽略 |
 | `starveil:illegally_shutdown` | `false` | 上次是否异常关闭（**临时键**） |
+
+### 界面语言
+
+**可选语言由内容提供，框架不规定一款游戏支持哪些语言。**
+
+```java
+// content.init.init() 里
+ContentConfig.addLanguage("zh_cn", "简体中文");
+ContentConfig.addLanguage("en_us", "English");
+```
+
+- 一个都不登记 → 设置界面里**语言那一行整体不显示**，而不是显示一个只有一项的下拉框；
+- 登记了什么就列出什么，显示名就是第二个参数；
+- 玩家选中后**立即生效并持久化**到 `starveil:setting.language`，界面随之重建；
+- 启动时读这个键恢复上次的选择；存的语言已经不在列表里（内容删掉了那份文案）则
+  回落到列表里的第一个，并记一条 WARNING。
+
+每个语言都要有一份文案文件，路径 `starveil:lang/<代码>.json`
+（框架自带 `zh_cn`，内容把自己的放在自己的资源目录里）。找不到的键会回落到
+框架默认语言，所以内容不必一次翻全 —— 但**键名必须与框架一致**，
+否则回退的是框架原文案，看起来像「语言没切换」。
+
+内容也可以把某个语言直接指向自己的文件：
+
+```java
+I18n.registerLanguageResource("en_us", "starveil:lang/en_us.json");
+I18n.inject("en_us", "framework.setting.title", "Options");   // 少量改写
+```
+
+---
 
 > `starveil:illegally_shutdown` 以前是「写进配置、下次启动时清理」的。
 > 改成临时键后**不需要任何清理逻辑**：生命周期由进程本身保证，
@@ -272,7 +323,7 @@ public final class MyPluginKeys {
     public static final DataKey<Integer> KILLS =
             DataManager.defineInt("myplugin", "kills", 0, DataKeyFlag.PER_SAVE);
     public static final DataKey<String> LAST_MAP =
-            DataManager.defineStr("myplugin", "last_map", "");
+            DataManager.define("myplugin", "last_map", null, String.class);
 }
 ```
 
@@ -280,8 +331,9 @@ public final class MyPluginKeys {
 
 - 没有命名空间前缀（裸名）；
 - 键名里出现第二段命名空间（`a:b:c`）；
-- 同一个键名被声明成两种类型（几乎一定是两处各自声明了同名键，必须炸掉）；
-- 默认值为 `null`（类型无从推断）。
+- 类型不受支持（只支持 String / Boolean / Integer / Long / Double / Float）；
+- **默认值类型与声明类型不符**（`null` 除外，它表示「没有默认值」）；
+- 同一个键名被声明成两种类型（几乎一定是两处各自声明了同名键，必须炸掉）。
 
 `starveil:` 是引擎保留命名空间，但**内容可以重定义内置键的默认值** ——
 例如改掉 `starveil:setting.text_speed` 的出厂值。重定义不会取消它的内置身份。

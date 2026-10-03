@@ -288,8 +288,13 @@ public final class ContentConfig {
         return hex.trim().toUpperCase(Locale.ROOT);
     }
 
-    /** 仅测试使用：恢复到框架默认（即「什么都没有」）。 */
-    static void resetForTest() {
+    /**
+     * 仅测试使用：恢复到框架默认（即「什么都没有」）。
+     *
+     * <p>公开是为了让其它包的测试也能重置这一层静态状态 ——
+     * 语言相关逻辑（{@code infrastructure.i18n}）需要它来保证用例之间互不影响。
+     */
+    public static void resetForTest() {
         bodyFont = null;
         titleFont = null;
         decorFont = null;

@@ -11,16 +11,23 @@ import static com.xiaowu.game.starveil.infrastructure.persistence.DataKeyFlag.TE
  *
  * <p><b>这就是内容项目该照抄的样板</b>：内容侧在
  * {@code com.xiaowu.game.starveil.content.init.init} 里用同样的写法声明自己的键 ——
- * 写明命名空间、键名、默认值和类型，然后项目里到处用这个句柄读写即可。
+ * 写明命名空间、键名、默认值和<b>类型</b>，然后项目里到处用这个句柄读写即可。
  *
  * <pre>
- *   // 内容侧（StarveilContent）的写法
+ *   // 内容侧（StarveilContent）的写法：类型写在默认值后面
  *   public static final DataKey&lt;String&gt; HERO_NAME =
- *           DataManager.define("mydemo", "hero_name", "霁雾");
+ *           DataManager.defineStr("mydemo", "hero_name", "霁雾");
  *
  *   public static final DataKey&lt;Integer&gt; AFFECTION =
  *           DataManager.defineInt("mydemo", "affection", 0, PER_SAVE);   // 随存档
+ *
+ *   // 也可以直接写类型，基本类型 / 包装类型都行；默认值 null 表示「没有默认值」
+ *   public static final DataKey&lt;Boolean&gt; CANT_EXIT =
+ *           DataManager.define("mydemo", "cant_exit", false, boolean.class, PER_SAVE);
  * </pre>
+ *
+ * <p>默认值与声明类型不一致会在<b>注册那一刻</b>直接报错，不必等到读取时才
+ * 发现值解析不了。
  *
  * <p>引擎命名空间 {@code starveil} 由框架占用，内容/插件请用自己的前缀。
  *
@@ -58,7 +65,37 @@ public final class FrameworkDataKeys {
             DataManager.defineBool("starveil", "setting.fullscreen", false);
 
     public static final DataKey<String> FULLSCREEN_MODE =
-            DataManager.defineStr("starveil", "setting.fullscreen_mode", "无边框窗口");
+            DataManager.defineStr("starveil", "setting.fullscreen_mode", "borderless");
+
+    /** 全屏方式：无边框窗口（默认）。 */
+    public static final String FULLSCREEN_MODE_BORDERLESS = "borderless";
+
+    /** 全屏方式：传统独占全屏。 */
+    public static final String FULLSCREEN_MODE_EXCLUSIVE = "exclusive";
+
+    /**
+     * 把全屏方式归一化到 {@link #FULLSCREEN_MODE_BORDERLESS} /
+     * {@link #FULLSCREEN_MODE_EXCLUSIVE}。
+     *
+     * <p>这个值以前直接存界面上的中文串（{@code 无边框窗口} / {@code 全屏}）。
+     * 一旦界面文字要能跟着语言换，就不能再拿显示文字当标识 —— 否则
+     * 「切到英文之后全屏方式失效」这种 bug 会非常难查。老配置里的中文串
+     * 在这里顺手认一下，省得玩家升级后设置被悄悄重置。
+     */
+    public static String normalizeFullscreenMode(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return FULLSCREEN_MODE_BORDERLESS;
+        }
+        String v = raw.trim();
+        if (FULLSCREEN_MODE_EXCLUSIVE.equalsIgnoreCase(v) || "全屏".equals(v)) {
+            return FULLSCREEN_MODE_EXCLUSIVE;
+        }
+        if (FULLSCREEN_MODE_BORDERLESS.equalsIgnoreCase(v) || "无边框窗口".equals(v)) {
+            return FULLSCREEN_MODE_BORDERLESS;
+        }
+        // 不认识的值按默认处理，而不是原样留着让后续比较全部落空
+        return FULLSCREEN_MODE_BORDERLESS;
+    }
 
     // ==================== 音频设置（全局） ====================
 
@@ -79,6 +116,17 @@ public final class FrameworkDataKeys {
     /** 打字机速度：每字间隔毫秒数，越大越慢。 */
     public static final DataKey<Integer> TEXT_SPEED =
             DataManager.defineInt("starveil", "setting.text_speed", 50);
+
+    /**
+     * 界面语言代码（如 {@code zh_cn}），默认 {@code zh_cn}。
+     *
+     * <p>可选语言由内容通过 {@code ContentConfig.addLanguage()} 提供；
+     * 内容没提供任何语言时，设置界面不显示语言切换，这个键也就一直是默认值。
+     * 详见 {@code docs/data-keys.md}。
+     */
+    public static final DataKey<String> LANGUAGE =
+            DataManager.defineStr("starveil", "setting.language",
+                    com.xiaowu.game.starveil.infrastructure.i18n.I18n.DEFAULT_LANGUAGE);
 
     // ==================== 按键绑定（全局） ====================
 

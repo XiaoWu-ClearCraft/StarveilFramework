@@ -69,8 +69,6 @@ public class AppEntry {
             boolean debug = LauncherConfig.getInstance().isDebugMode();
             boolean needAdmin = LauncherConfig.getInstance().isNeedAdmin();
 
-            com.xiaowu.game.starveil.infrastructure.persistence.DataManager.initialize();
-
             // 框架本身不是一款可运行的游戏。没有 content 包时章节、地图、物品、
             // 成就全是空的 —— 与其让玩家对着一个玩不了的空壳猜测，
             // 不如在这里明确失败并说明「这是框架，缺少内容」。
@@ -96,6 +94,19 @@ public class AppEntry {
             if (hasContentInit) {
                 GameContentInit.run();
             }
+
+            // ⚠ 必须在内容初始化【之后】才 initialize：
+            //   内容会通过 ContentConfig.setDataCryptoKey() 指定数据文件密钥，
+            //   而 initialize() 在文件不存在时会立刻写出一个 game.dat。
+            //   顺序颠倒的话，这个新文件是用【框架默认密钥】加密的，
+            //   之后就再也读不回来（表现为每次启动都报解密失败），
+            //   而玩家什么都没做错。
+            com.xiaowu.game.starveil.infrastructure.persistence.DataManager.initialize();
+
+            // 界面语言：同样必须在内容初始化之后 —— 内容是通过
+            // ContentConfig.addLanguage() 才登记可选语言的，早于那一步就
+            // 无从校验存下来的偏好是否仍然可用。
+            com.xiaowu.game.starveil.infrastructure.i18n.LanguageSettings.applyStored();
 
             // 加载插件（此时 Launcher 类还未被加载，插件可以注册字节码转换与平台注入点）
             boolean hasPlugins = com.xiaowu.game.starveil.plugin.PluginLoader.initializeAndLoadPlugins();

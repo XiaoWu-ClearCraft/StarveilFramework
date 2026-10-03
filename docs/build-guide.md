@@ -167,8 +167,11 @@ public final class init {
         // 主题色
         ContentConfig.setPrimaryColor("#FF69B4");
 
-        // 可选语言（不提供则设置界面不显示语言切换）
+        // 可选语言（不提供则设置界面完全不显示语言切换）
+        // 每个语言还要有一份文案：starveil:lang/<代码>.json
+        // 框架自带 zh_cn；en_us 放在本项目的 assets/starveil/lang/ 下
         ContentConfig.addLanguage("zh_cn", "简体中文");
+        ContentConfig.addLanguage("en_us", "English");
 
         // 数据文件加密密钥（不提供则用框架默认值；换密钥会作废旧存档）
         ContentConfig.setDataCryptoKey("MyGame_SecretKey", null);
@@ -195,8 +198,16 @@ public final class MyGameKeys {
     /** 是否已看过开场：全局，默认 false。 */
     public static final DataKey<Boolean> SEEN_PROLOGUE =
             DataManager.defineBool("mygame", "seen_prologue", false);
+
+    /** 最近到过的地图：没有默认值 → 读到 null。 */
+    public static final DataKey<String> LAST_MAP =
+            DataManager.define("mygame", "last_map", null, String.class);
 }
 ```
+
+类型是**声明出来的**，不靠默认值推断：默认值非 `null` 时必须与类型一致，
+否则注册即报错 —— 这样「默认值写错」在启动阶段就暴露，而不是等到某次读取
+因为解析失败悄悄回退。详见 [数据键](data-keys.md)。
 
 也可以重定义框架内置键的出厂默认值（例如改掉默认文字速度）：
 

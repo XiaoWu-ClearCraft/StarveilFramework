@@ -65,6 +65,7 @@ public class  GameConstants {
     public static final String SETTING_SFX_VOLUME = "starveil:setting.sfx_volume";
     public static final String SETTING_BGM_INTERVAL = "starveil:setting.bgm_interval";
     public static final String SETTING_TEXT_SPEED = "starveil:setting.text_speed";
+    public static final String SETTING_LANGUAGE = "starveil:setting.language";
 
     // 游戏状态键名常量
     public static final String ILLEGALLY_SHUTDOWN_KEY = "starveil:illegally_shutdown";

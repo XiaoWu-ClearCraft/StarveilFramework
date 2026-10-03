@@ -82,12 +82,12 @@ class SaveDataManagerScopedTest {
 
     @Test
     void allTypesRoundTrip() {
-        DataKey<String> s = DataKey.of("chapter3", "s", "", DataKeyFlag.PER_SAVE);
-        DataKey<Integer> i = DataKey.of("chapter3", "i", 0, DataKeyFlag.PER_SAVE);
-        DataKey<Long> l = DataKey.of("chapter3", "l", 0L, DataKeyFlag.PER_SAVE);
-        DataKey<Double> d = DataKey.of("chapter3", "d", 0.0, DataKeyFlag.PER_SAVE);
-        DataKey<Float> f = DataKey.of("chapter3", "f", 0f, DataKeyFlag.PER_SAVE);
-        DataKey<Boolean> b = DataKey.of("chapter3", "b", false, DataKeyFlag.PER_SAVE);
+        DataKey<String> s = DataKey.of("chapter3", "s", "", String.class, DataKeyFlag.PER_SAVE);
+        DataKey<Integer> i = DataKey.of("chapter3", "i", 0, Integer.class, DataKeyFlag.PER_SAVE);
+        DataKey<Long> l = DataKey.of("chapter3", "l", 0L, Long.class, DataKeyFlag.PER_SAVE);
+        DataKey<Double> d = DataKey.of("chapter3", "d", 0.0, Double.class, DataKeyFlag.PER_SAVE);
+        DataKey<Float> f = DataKey.of("chapter3", "f", 0f, Float.class, DataKeyFlag.PER_SAVE);
+        DataKey<Boolean> b = DataKey.of("chapter3", "b", false, Boolean.class, DataKeyFlag.PER_SAVE);
 
         SaveDataManager.setActive(true);
 
@@ -108,7 +108,7 @@ class SaveDataManagerScopedTest {
 
     @Test
     void missingKeyYieldsDefault() {
-        DataKey<Integer> k = DataKey.of("chapter3", "absent", 99, DataKeyFlag.PER_SAVE);
+        DataKey<Integer> k = DataKey.of("chapter3", "absent", 99, Integer.class, DataKeyFlag.PER_SAVE);
         SaveDataManager.setActive(true);
 
         assertEquals(99, k.getInt());
@@ -117,8 +117,8 @@ class SaveDataManagerScopedTest {
 
     @Test
     void namespacesAreIsolated() {
-        DataKey<Integer> c3 = DataKey.of("chapter3", "123", 0, DataKeyFlag.PER_SAVE);
-        DataKey<Integer> c4 = DataKey.of("chapter4", "123", 0, DataKeyFlag.PER_SAVE);
+        DataKey<Integer> c3 = DataKey.of("chapter3", "123", 0, Integer.class, DataKeyFlag.PER_SAVE);
+        DataKey<Integer> c4 = DataKey.of("chapter4", "123", 0, Integer.class, DataKeyFlag.PER_SAVE);
         SaveDataManager.setActive(true);
 
         c3.set(1);
@@ -130,7 +130,7 @@ class SaveDataManagerScopedTest {
 
     @Test
     void removeDeletesValue() {
-        DataKey<Integer> k = DataKey.of("chapter3", "123", 0, DataKeyFlag.PER_SAVE);
+        DataKey<Integer> k = DataKey.of("chapter3", "123", 0, Integer.class, DataKeyFlag.PER_SAVE);
         SaveDataManager.setActive(true);
         k.set(1);
         assertTrue(k.isSet());
@@ -144,7 +144,7 @@ class SaveDataManagerScopedTest {
 
     @Test
     void clearWipesValuesButKeepsRegistration() {
-        DataKey<Integer> k = DataKey.of("chapter3", "123", 0, DataKeyFlag.PER_SAVE);
+        DataKey<Integer> k = DataKey.of("chapter3", "123", 0, Integer.class, DataKeyFlag.PER_SAVE);
         SaveDataManager.setActive(true);
         k.set(1);
 

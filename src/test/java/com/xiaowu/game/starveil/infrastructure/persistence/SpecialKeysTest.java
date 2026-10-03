@@ -56,7 +56,7 @@ class SpecialKeysTest {
                 "migrate 只做去空白，不再做别名映射");
         assertEquals(GameConstants.INERTIA_KEY, SpecialKeys.migrate(GameConstants.INERTIA_KEY));
         assertThrows(IllegalArgumentException.class,
-                () -> DataKey.of(null, "CantExit", false),
+                () -> DataKey.of(null, "CantExit", false, Boolean.class),
                 "裸名连注册都进不去");
     }
 
@@ -64,7 +64,7 @@ class SpecialKeysTest {
 
     @Test
     void thirdPartyKeyWithNamespaceIsAccepted() {
-        DataKey<Boolean> key = DataKey.of("myplugin", "some_key", false);
+        DataKey<Boolean> key = DataKey.of("myplugin", "some_key", false, Boolean.class);
         assertEquals("myplugin:some_key", key.qualified());
         assertTrue(DataKeyRegistry.isRegistered("myplugin:some_key"));
         assertFalse(SpecialKeys.isBuiltIn("myplugin:some_key"), "第三方键不是内置键");
@@ -74,7 +74,8 @@ class SpecialKeysTest {
 
     @Test
     void perSaveFlagMakesAKeySpecial() {
-        DataKey<Boolean> key = DataKey.of("myplugin", "save_flag", false, DataKeyFlag.PER_SAVE);
+        DataKey<Boolean> key = DataKey.of("myplugin", "save_flag", false, Boolean.class,
+                DataKeyFlag.PER_SAVE);
         assertTrue(SpecialKeys.isSpecial(key.qualified()));
         assertEquals(DataKeyScope.PER_SAVE, key.scope());
     }
@@ -82,22 +83,26 @@ class SpecialKeysTest {
     @Test
     void bareNameIsRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> DataKey.of(null, "some_key", false),
+                () -> DataKey.of(null, "some_key", false, Boolean.class),
                 "没有命名空间前缀的裸名必须被拒绝");
         assertThrows(IllegalArgumentException.class,
-                () -> DataKey.of("  ", "some_key", false));
+                () -> DataKey.of("  ", "some_key", false, Boolean.class));
         assertThrows(IllegalArgumentException.class,
-                () -> DataKey.of(null, null, false));
+                () -> DataKey.of(null, null, false, Boolean.class));
     }
 
     @Test
     void emptyOrMalformedIsRejected() {
-        assertThrows(IllegalArgumentException.class, () -> DataKey.of(null, "   ", "x"));
-        assertThrows(IllegalArgumentException.class, () -> DataKey.of(null, "myplugin:", "x"));
-        assertThrows(IllegalArgumentException.class, () -> DataKey.of(null, ":name", "x"));
-        assertThrows(IllegalArgumentException.class, () -> DataKey.of(null, "a:b:c", "x"));
         assertThrows(IllegalArgumentException.class,
-                () -> DataKey.of("starveil", "myplugin:other", "x"),
+                () -> DataKey.of(null, "   ", "x", String.class));
+        assertThrows(IllegalArgumentException.class,
+                () -> DataKey.of(null, "myplugin:", "x", String.class));
+        assertThrows(IllegalArgumentException.class,
+                () -> DataKey.of(null, ":name", "x", String.class));
+        assertThrows(IllegalArgumentException.class,
+                () -> DataKey.of(null, "a:b:c", "x", String.class));
+        assertThrows(IllegalArgumentException.class,
+                () -> DataKey.of("starveil", "myplugin:other", "x", String.class),
                 "已经是完整键名时不该再单独传命名空间");
     }
 
@@ -105,43 +110,39 @@ class SpecialKeysTest {
     void engineNamespaceBelongsToTheFramework() {
         // 引擎命名空间允许内容重定义内置键，但键名必须真的是内置的那个；
         // 新造一个 starveil: 键不属于内容该做的事，注册表会放行但不标为内置
-        DataKey<String> k = DataKey.of("starveil", "framework_version", "9.9.9");
+        DataKey<String> k = DataKey.of("starveil", "framework_version", "9.9.9", String.class);
         assertTrue(DataKeyRegistry.isBuiltIn(k.qualified()),
                 "重定义不会取消它的内置身份");
     }
 
     @Test
     void sameKeyCannotChangeType() {
-        DataKey.of("myplugin", "value", 1);
+        DataKey.of("myplugin", "value", 1, Integer.class);
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> DataKey.of("myplugin", "value", "字符串"),
+                () -> DataKey.of("myplugin", "value", "字符串", String.class),
                 "同一个键被声明成两种类型时必须报错");
         assertTrue(e.getMessage().contains("value"));
     }
 
     @Test
     void reRegisteringSameTypeReplacesDefinition() {
-        DataKey<Integer> first = DataKey.of("myplugin", "value", 1);
-        DataKey<Integer> second = DataKey.of("myplugin", "value", 42);
+        DataKey<Integer> first = DataKey.of("myplugin", "value", 1, Integer.class);
+        DataKey<Integer> second = DataKey.of("myplugin", "value", 42, Integer.class);
         assertEquals(42, second.get(), "后注册的默认值生效");
         assertEquals(1, first.getInt(), "旧句柄不可变，仍持有自己的默认值");
     }
 
     @Test
-    void nullDefaultIsRejectedBecauseTypeCannotBeInferred() {
-        assertThrows(IllegalArgumentException.class,
-                () -> DataKey.of("myplugin", "no_type", null));
-    }
-
-    @Test
     void unsupportedTypeIsRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> DataKey.of("myplugin", "bytes", new byte[]{1, 2}));
+                () -> DataKey.of("myplugin", "bytes", new byte[]{1, 2}, byte[].class));
+        assertThrows(IllegalArgumentException.class,
+                () -> DataKey.of("myplugin", "obj", "x", Object.class));
     }
 
     @Test
     void registeredKeysAreResolvableByName() {
-        DataKey<Integer> k = DataKey.of("myplugin", "counter", 3);
+        DataKey<Integer> k = DataKey.of("myplugin", "counter", 3, Integer.class);
         assertNotNull(DataKeyRegistry.lookup("myplugin:counter"));
         assertEquals(DataType.INT, DataKeyRegistry.typeOf("myplugin:counter"));
         assertNull(DataKeyRegistry.lookup("myplugin:absent"));
@@ -150,7 +151,7 @@ class SpecialKeysTest {
 
     @Test
     void builtInKeysSurviveReset() {
-        DataKey.of("myplugin", "some_key", false);
+        DataKey.of("myplugin", "some_key", false, Boolean.class);
         DataKeyRegistry.resetForTest();
 
         assertFalse(DataKeyRegistry.isRegistered("myplugin:some_key"), "第三方注册被清掉");

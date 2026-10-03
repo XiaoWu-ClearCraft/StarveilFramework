@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -234,6 +235,63 @@ class DataKeyRegistrationTest {
 
         assertEquals("存档值", flag.get());
         SaveDataManager.setActive(false);
+    }
+
+    // ==================== 类型显式声明 ====================
+
+    @Test
+    void explicitPrimitiveTypeIsAccepted() {
+        // 基本类型与包装类型等价：写哪个不该决定成败
+        DataKey<Boolean> a = DataManager.define("t", "prim_bool", false, boolean.class);
+        DataKey<Integer> b = DataManager.define("t", "prim_int", 0, int.class);
+        assertEquals(DataType.BOOLEAN, a.type());
+        assertEquals(DataType.INT, b.type());
+
+        a.set(true);
+        assertTrue(a.getBool());
+    }
+
+    @Test
+    void defaultMustMatchDeclaredType() {
+        // 默认值给成了字符串但声明是布尔键 —— 注册那一刻就该炸
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> DataManager.define("t", "bad_bool", "true", Boolean.class));
+        assertTrue(e.getMessage().contains("t:bad_bool"), "报错要点明是哪个键");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> DataManager.define("t", "bad_int", "5", Integer.class));
+        assertThrows(IllegalArgumentException.class,
+                () -> DataManager.define("t", "bad_long", 1, Long.class),
+                "int 不是 Long，类型不符要报错（要拓宽请用显式类型或 setNumber）");
+    }
+
+    @Test
+    void nullDefaultMeansNoDefault() {
+        DataKey<String> s = DataManager.define("t", "no_default", null, String.class);
+        assertNull(s.get(), "没有默认值就是 null，而不是空串或键名");
+
+        s.set("值");
+        assertEquals("值", s.get());
+        s.remove();
+        assertNull(s.get());
+    }
+
+    @Test
+    void nullDefaultStillKnowsItsType() {
+        DataKey<Integer> n = DataManager.define("t", "no_default_int", null, Integer.class);
+        assertEquals(DataType.INT, n.type(), "类型来自声明，与默认值是否为 null 无关");
+        assertNull(n.get());
+        assertEquals(0, n.getInt(), "拆箱取零值，不抛 NPE");
+
+        n.set(7);
+        assertEquals(7, n.getInt());
+    }
+
+    @Test
+    void nullDefaultStringIsNotTreatedAsEmptyString() {
+        DataKey<String> s = DataManager.define("t", "absent_str", null, String.class);
+        assertFalse(s.isSet());
+        assertNull(s.get(), "「没有值」与「值是空串」是两件事");
     }
 
     // ==================== 未注册键 ====================

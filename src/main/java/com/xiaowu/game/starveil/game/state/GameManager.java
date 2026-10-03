@@ -276,7 +276,8 @@ public class GameManager {
                 String fullscreenMode = FrameworkDataKeys.FULLSCREEN_MODE.get();
 
                 // 根据全屏模式使用不同的实现方式
-                if ("无边框窗口".equals(fullscreenMode)) {
+                if (FrameworkDataKeys.FULLSCREEN_MODE_BORDERLESS
+                        .equals(FrameworkDataKeys.normalizeFullscreenMode(fullscreenMode))) {
                     // 无边框窗口模式：调用applyFullscreen处理全屏逻辑
                     applyFullscreen(newValue);
                 } else {
@@ -428,7 +429,8 @@ public class GameManager {
         String fullscreenMode = FrameworkDataKeys.FULLSCREEN_MODE.get();
 
         // 根据全屏模式使用不同的实现方式
-        if ("无边框窗口".equals(fullscreenMode)) {
+        if (FrameworkDataKeys.FULLSCREEN_MODE_BORDERLESS
+                .equals(FrameworkDataKeys.normalizeFullscreenMode(fullscreenMode))) {
             // 无边框窗口模式：使用replaceStage切换窗口样式
             if (isFullscreen) {
                 // 保存当前窗口状态

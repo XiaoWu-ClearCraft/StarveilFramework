@@ -30,6 +30,44 @@ public enum DataType {
         return valueClass;
     }
 
+    /**
+     * 由 java 类型（基本类型或包装类型均可）取对应的值类型。
+     *
+     * <p>{@code int.class} 与 {@code Integer.class} 都映射到 {@link #INT} ——
+     * 声明时写哪个是风格问题，不该让其中一个失败。
+     *
+     * @return 对应类型；不受支持时返回 {@code null}
+     */
+    public static DataType of(Class<?> javaType) {
+        if (javaType == null) {
+            return null;
+        }
+        if (javaType == String.class) return STRING;
+        if (javaType == boolean.class || javaType == Boolean.class) return BOOLEAN;
+        if (javaType == int.class || javaType == Integer.class) return INT;
+        if (javaType == long.class || javaType == Long.class) return LONG;
+        if (javaType == double.class || javaType == Double.class) return DOUBLE;
+        if (javaType == float.class || javaType == Float.class) return FLOAT;
+        return null;
+    }
+
+    /** 由默认值的 java 类型推断值类型；{@code null} 无法推断。 */
+    public static DataType of(Object defaultValue) {
+        return defaultValue == null ? null : of(defaultValue.getClass());
+    }
+
+    /** 该类型的「没有默认值」表示：数值 0 / false / 空串 / null。 */
+    public Object zeroValue() {
+        return switch (this) {
+            case STRING -> "";
+            case BOOLEAN -> Boolean.FALSE;
+            case INT -> 0;
+            case LONG -> 0L;
+            case DOUBLE -> 0.0;
+            case FLOAT -> 0f;
+        };
+    }
+
     /** 判断一个 java 值是否属于此类型（自动装箱）。 */
     public boolean matches(Object value) {
         return value != null && valueClass.isInstance(value);

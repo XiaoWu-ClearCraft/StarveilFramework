@@ -719,6 +719,14 @@ public class JavaFXRenderEngine implements RenderEngine {
     }
 
     @Override
+    public void setButtonText(ButtonHandle handle, String text) {
+        if (handle.getNativeHandle() instanceof javafx.scene.control.Labeled labeled) {
+            // Button / ToggleButton 等都以 Labeled 为共同基类
+            labeled.setText(text);
+        }
+    }
+
+    @Override
     public LabelHandle createLabel(String text, TextStyle style) {
         Label label = new Label(text);
         if (style != null) {
@@ -754,6 +762,21 @@ public class JavaFXRenderEngine implements RenderEngine {
     public void setLabelText(LabelHandle handle, String text) {
         if (handle.getNativeHandle() instanceof Label label) {
             label.setText(text);
+        }
+    }
+
+    @Override
+    public void setLabelClickAction(LabelHandle handle, Runnable action) {
+        if (handle.getNativeHandle() instanceof Label label) {
+            // Label 默认 pickOnBounds=false，点击只在文字笔画上生效；
+            // 打开它并铺满背景，点到「标签那一块区域」就算点到
+            label.setPickOnBounds(true);
+            label.setMouseTransparent(false);
+            label.setOnMouseClicked(e -> {
+                if (action != null) {
+                    action.run();
+                }
+            });
         }
     }
 

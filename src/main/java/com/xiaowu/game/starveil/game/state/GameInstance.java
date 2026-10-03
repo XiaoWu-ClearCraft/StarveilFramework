@@ -1117,6 +1117,18 @@ public class GameInstance {
     private void openSetting() {
         if (isSettingOpen) return; // 避免重复打开
         isSettingOpen = true;
+        buildSettingOverlay();
+        // 隐藏 GameUI
+        GameUI.getInstance().hide();
+    }
+
+    /**
+     * 创建设置层并挂到 overlayHost 上。
+     *
+     * <p>抽成单独方法是因为<b>切换语言后要整个重建一遍</b>：界面文字全部来自语言表，
+     * 只换几处文本会留下「一半旧语言一半新语言」的界面。
+     */
+    private void buildSettingOverlay() {
         setting = new SettingManager(inputHandler);
         settingRoot = (Pane) setting.createRoot();
         // 绑定大小到gameContainer
@@ -1125,6 +1137,17 @@ public class GameInstance {
             region.prefWidthProperty().bind(gameContainer.widthProperty());
             region.prefHeightProperty().bind(gameContainer.heightProperty());
         }
+
+        // 语言切换后重建界面。重建发生在设置层还挂在界面上时，
+        // 所以先把旧的摘掉，避免两层重叠（旧层还会吃掉鼠标点击）。
+        setting.setOnLanguageChanged(code -> javafx.application.Platform.runLater(() -> {
+            if (!isSettingOpen) {
+                return;
+            }
+            detachSettingOverlay();
+            buildSettingOverlay();
+        }));
+
         // 设置关闭回调
         setting.setOnClose(this::closeSetting);
         // 创建并保存ESC处理回调
@@ -1141,8 +1164,19 @@ public class GameInstance {
         if (settingRoot instanceof javafx.scene.Node) {
             overlayHost().getChildren().add((javafx.scene.Node) settingRoot);
         }
-        // 隐藏 GameUI
-        GameUI.getInstance().hide();
+    }
+
+    /** 把设置层从界面上摘下来并注销它的事件处理，但不改变 {@code isSettingOpen}。 */
+    private void detachSettingOverlay() {
+        if (settingEscHandler != null) {
+            inputHandler.removeKeyPressedHandler(InputHandler.PAUSE_TOGGLE, settingEscHandler);
+            settingEscHandler = null;
+        }
+        if (settingRoot instanceof javafx.scene.Node node) {
+            overlayHost().getChildren().remove(node);
+        }
+        settingRoot = null;
+        setting = null;
     }
 
     /**
@@ -1342,21 +1376,8 @@ public class GameInstance {
      * 关闭设置界面
      */
     private void closeSetting() {
-        // 取消注册ESC处理回调（使用新的事件回调系统）
-        if (settingEscHandler != null) {
-            inputHandler.removeKeyPressedHandler(InputHandler.PAUSE_TOGGLE, settingEscHandler);
-            settingEscHandler = null;
-        }
-
+        detachSettingOverlay();
         isSettingOpen = false;
-        if (settingRoot != null && settingRoot instanceof javafx.scene.Node) {
-            javafx.scene.Node node = (javafx.scene.Node) settingRoot;
-            if (overlayHost().getChildren().contains(node)) {
-                overlayHost().getChildren().remove(node);
-            }
-        }
-        settingRoot = null;
-        setting = null;
 
         // 重新显示 GameUI（仅在游戏未暂停且未死亡时）
         if (!isPaused && !isDead) {

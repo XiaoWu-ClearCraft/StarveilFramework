@@ -42,25 +42,42 @@ public final class DataKeyRegistry {
      * 注册一个数据键。同名重复注册会<b>替换</b>旧定义（内容可以重定义框架内置键
      * 的默认值或类型）。
      *
+     * <p><b>类型由调用方显式写明</b>，默认值只负责提供「没设过值时读到什么」。
+     * 两者不一致时直接报错：让 {@code defineBool("x", "y", "true", ...)} 这种
+     * 「默认值给成了字符串」在注册那一刻就炸掉，而不是等到读取时才因为解析失败
+     * 悄悄回退 —— 那时已经离出错的地方很远了。
+     *
      * @param namespace    命名空间；若 {@code name} 已含前缀则可为 null
      * @param name         键名；也可以直接给完整键名 {@code ns:key}
-     * @param defaultValue 默认值，其 java 类型决定键类型
+     * @param defaultValue 默认值；{@code null} 表示「没有默认值」，读取时按类型取零值。
+     *                     非 null 时其类型必须与 {@code valueType} 一致
+     * @param valueType    值类型，{@code int.class} / {@code Integer.class} 都可以
      * @param flags        {@link DataKeyFlag}，可省略
-     * @throws IllegalArgumentException 命名空间/键名不合法，或与已有键<b>类型冲突</b>
-     *                                  （用同一个键名声明了不同的值类型）
+     * @throws IllegalArgumentException 命名空间/键名不合法、类型不受支持、
+     *                                  默认值与类型不符，或与已有键<b>类型冲突</b>
      */
     public static synchronized <T> DataKey<T> register(String namespace,
                                                        String name,
                                                        T defaultValue,
+                                                       Class<?> valueType,
                                                        DataKeyFlag... flags) {
         String qualified = qualify(namespace, name);
         String ns = qualified.substring(0, qualified.indexOf(SEPARATOR));
 
-        DataType type = dataTypeOf(defaultValue);
+        DataType type = DataType.of(valueType);
         if (type == null) {
             throw new IllegalArgumentException(
-                    "键 '" + qualified + "' 的默认值为 null，无法推断类型；"
-                            + "请给一个非 null 默认值（或用带类型的方法注册）");
+                    "键 '" + qualified + "' 的值类型不受支持: " + valueType.getName()
+                            + "（只支持 String/Boolean/Integer/Long/Double/Float）");
+        }
+
+        // 默认值与声明类型必须一致。null 例外 —— 它表示「没有默认值」。
+        if (defaultValue != null && !type.matches(defaultValue)) {
+            throw new IllegalArgumentException(
+                    "键 '" + qualified + "' 声明类型为 " + type + "，但默认值 '" + defaultValue
+                            + "' (" + defaultValue.getClass().getSimpleName()
+                            + ") 不是这个类型（默认值要能当 " + type
+                            + " 用；确实不想要默认值就传 null）");
         }
 
         boolean temporary = hasFlag(flags, DataKeyFlag.TEMPORARY);
@@ -229,22 +246,6 @@ public final class DataKeyRegistry {
 
     private static String localName(String qualified) {
         return qualified.substring(qualified.indexOf(SEPARATOR) + 1);
-    }
-
-    /** 由默认值的 java 类型推断 {@link DataType}。 */
-    static DataType dataTypeOf(Object defaultValue) {
-        if (defaultValue == null) {
-            return null;
-        }
-        if (defaultValue instanceof String) return DataType.STRING;
-        if (defaultValue instanceof Boolean) return DataType.BOOLEAN;
-        if (defaultValue instanceof Integer) return DataType.INT;
-        if (defaultValue instanceof Long) return DataType.LONG;
-        if (defaultValue instanceof Double) return DataType.DOUBLE;
-        if (defaultValue instanceof Float) return DataType.FLOAT;
-        throw new IllegalArgumentException(
-                "不支持的数据键类型: " + defaultValue.getClass().getName()
-                        + "（只支持 String/Boolean/Integer/Long/Double/Float）");
     }
 
     /**

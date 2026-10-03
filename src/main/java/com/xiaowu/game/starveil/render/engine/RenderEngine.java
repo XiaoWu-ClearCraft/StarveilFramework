@@ -193,6 +193,15 @@ public interface RenderEngine {
     void setButtonAction(ButtonHandle handle, Runnable action);
 
     /**
+     * 更新按钮文本。
+     *
+     * <p>用于「按钮文字会变」的场景（例如按键重绑时先显示「等待按键…」）。
+     * 注意按钮上显示的文字与 {@code setUserData} 存的业务标识是两回事：
+     * 改文字不该顺手把标识也改掉，否则之后再想恢复原文案就没有依据了。
+     */
+    void setButtonText(ButtonHandle handle, String text);
+
+    /**
      * 创建标签
      */
     LabelHandle createLabel(String text, TextStyle style);
@@ -201,6 +210,14 @@ public interface RenderEngine {
      * 更新标签文本
      */
     void setLabelText(LabelHandle handle, String text);
+
+    /**
+     * 给标签绑定点击事件。
+     *
+     * <p>标签默认不吃鼠标事件，用它做「可点击的文字」时（例如语言列表里的选项）
+     * 必须走这个入口，而不是把 {@code setUserData} 当成回调注册处。
+     */
+    void setLabelClickAction(LabelHandle handle, Runnable action);
 
     /**
      * 创建输入框
@@ -449,6 +466,11 @@ public interface RenderEngine {
      * 设置光标样式
      */
     void setCursor(Object node, String cursorType);
+
+    /** 把光标设成手型 —— 表示「这里可以点」。 */
+    default void setCursorHand(Object node) {
+        setCursor(node, "HAND");
+    }
 
     /**
      * 请求焦点
