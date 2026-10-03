@@ -40,10 +40,14 @@ public class SaveDataManager {
     private static SaveDataManager instance;
 
     // 存储所有存档变量
-    private Map<String, String> saveVariables;
+    //
+    // 用 ConcurrentHashMap 而不是 HashMap：剧情线程（StoryScript 的
+    // set / setFlag / setCounter）与 FX 线程（设置、调试窗口）都会写它。
+    // 普通 HashMap 在并发写入下可能丢数据，极端情况下迭代会陷入死循环。
+    private final Map<String, String> saveVariables =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     private SaveDataManager() {
-        saveVariables = new HashMap<>();
     }
 
     /**
@@ -425,11 +429,16 @@ public class SaveDataManager {
     /**
      * 导入变量（加载存档时调用）
      *
+     * <p>就地替换内容而不是重新赋值字段：读档发生在 FX 线程，而剧情线程可能
+     * 正在读存档变量。重新赋值会让两边看到不同的 map，换掉的那份里刚写进去的
+     * 值就悄悄丢了。
+     *
      * @param variables 要导入的变量 Map
      */
     public void importAll(Map<String, String> variables) {
         if (variables != null) {
-            saveVariables = new HashMap<>(variables);
+            saveVariables.clear();
+            saveVariables.putAll(variables);
             Logger("DEBUG", "已导入 " + saveVariables.size() + " 个存档变量");
         }
     }

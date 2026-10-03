@@ -37,7 +37,10 @@ public class  GameConstants {
                 if (Files.exists(p)) {
                     Files.setAttribute(p, "dos:hidden", true);
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // 「隐藏目录」只是整洁性优化，失败不影响游戏能否运行，
+                // 没必要为它弹窗或刷日志（某些文件系统也不支持 dos:hidden）
+            }
         }
     }
     public static final String LOGS_DIR = "logs";

@@ -59,6 +59,14 @@ public class SettingManager {
     // 当前设置的值（用于取消时恢复）
     private Map<String, Object> currentSettings = new HashMap<>();
 
+    /**
+     * 打开面板时的文本速度。
+     *
+     * <p>这一项在编辑期间就即时生效（拖滑杆立刻看到效果），因此取消时需要回滚。
+     * 回滚值必须是「打开面板那一刻」的值，不能现读配置 —— 拖滑杆时它已经被改过了。
+     */
+    private int initialTextSpeed = FrameworkDataKeys.TEXT_SPEED.get();
+
     // 面板缓存
     private Object cachedKeyPanel = null;
     private Object cachedAudioPanel = null;
@@ -532,10 +540,10 @@ public class SettingManager {
 
         CheckBoxHandle fullscreenHandle = renderEngine.createCheckBox("");
         renderEngine.setCheckBoxSelected(fullscreenHandle, GameManager.getInstance().isFullscreen());
-        renderEngine.addCheckBoxListener(fullscreenHandle, (oldVal, newVal) -> {
-            currentSettings.put("fullscreen", newVal);
-            GameManager.getInstance().setFullscreen(newVal);
-        });
+        // 只暂存选择，和比例 / 全屏方式一样等「应用 / 确定」才生效 ——
+        // 立刻改的话，玩家点「取消」就会留下已经改过的窗口状态
+        renderEngine.addCheckBoxListener(fullscreenHandle, (oldVal, newVal) ->
+            currentSettings.put("fullscreen", newVal));
 
         renderEngine.addToGrid(displayGrid, fullscreenLabelHandle.getNativeHandle(), 0, 1);
         renderEngine.addToGrid(displayGrid, fullscreenHandle.getNativeHandle(), 1, 1);
@@ -582,7 +590,9 @@ public class SettingManager {
         renderEngine.addSliderListener(textSpeedHandle, (oldVal, newVal) -> {
             int val = newVal.intValue();
             currentSettings.put(GameConstants.SETTING_TEXT_SPEED, val);
-            FrameworkDataKeys.TEXT_SPEED.setInt(val);
+            // 拖一次滑杆会触发几十次 value 变化；不合并的话每次都会
+            // 完整序列化 + 加密 + 写一遍文件，而且都在 FX 线程上
+            DataManager.batch(() -> FrameworkDataKeys.TEXT_SPEED.setInt(val));
         });
 
         // 显示当前速度值的标签
@@ -806,7 +816,8 @@ public class SettingManager {
         renderEngine.addSliderListener(bgmIntervalSliderHandle, (oldVal, newVal) -> {
             long interval = (long) (newVal * 1000);
             currentSettings.put("bgmInterval", interval);
-            BGMManager.getInstance().setInterval(interval);
+            // setInterval 会写配置；拖一次滑杆触发几十次，合并成一次落盘
+            DataManager.batch(() -> BGMManager.getInstance().setInterval(interval));
             renderEngine.setLabelText(bgmIntervalValueLabelHandle, String.format("%.0f秒", newVal));
         });
 
@@ -840,58 +851,77 @@ public class SettingManager {
         if (aspectRatio == null || aspectRatio.isEmpty()) {
             aspectRatio = GameManager.getInstance().getAspectRatioString();
         }
-        FrameworkDataKeys.ASPECT_RATIO.set(aspectRatio);
-        GameManager.getInstance().setAspectRatio(aspectRatio);
+        final String ratio = aspectRatio;
 
-        FrameworkDataKeys.FULLSCREEN.set(GameManager.getInstance().isFullscreen());
+        // 全屏：面板里改过就用面板的选择，否则沿用当前状态
+        Boolean pendingFullscreen = (Boolean) currentSettings.get("fullscreen");
+        final boolean fullscreen = pendingFullscreen != null
+                ? pendingFullscreen
+                : GameManager.getInstance().isFullscreen();
 
-        String fullscreenMode = (String) currentSettings.get("fullscreenMode");
-        if (fullscreenMode != null) {
-            FrameworkDataKeys.FULLSCREEN_MODE.set(fullscreenMode);
-        }
+        // 这一组写入合并成一次落盘（含 saveKeyBindings 里的八次，它自己也会批量嵌套）
+        DataManager.batch(() -> {
+            FrameworkDataKeys.ASPECT_RATIO.set(ratio);
 
-        FrameworkDataKeys.BGM_VOLUME.set(AudioManager.getBackgroundMusicVolume());
-        FrameworkDataKeys.SFX_VOLUME.set(AudioManager.getSoundEffectsVolume());
+            FrameworkDataKeys.FULLSCREEN.set(fullscreen);
 
-        saveKeyBindings();
+            String fullscreenMode = (String) currentSettings.get("fullscreenMode");
+            if (fullscreenMode != null) {
+                FrameworkDataKeys.FULLSCREEN_MODE.set(fullscreenMode);
+            }
+
+            FrameworkDataKeys.BGM_VOLUME.set(AudioManager.getBackgroundMusicVolume());
+            FrameworkDataKeys.SFX_VOLUME.set(AudioManager.getSoundEffectsVolume());
+
+            saveKeyBindings();
+        });
+
+        // 窗口调整放在批量之外：它们不写配置，
+        // 和「攒几次写入再落盘」是两件事，混在一起只会让顺序更难读
+        GameManager.getInstance().setFullscreen(fullscreen);
+        GameManager.getInstance().setAspectRatio(ratio);
+
         NotificationManager.getInstance()
-                .showNotification("设置已加载", "已将设置应用到您的游戏", null, 5);
+                .showNotification(tr("framework.setting.saved.title", "设置已加载"),
+                        tr("framework.setting.saved.body", "已将设置应用到您的游戏"), null, 5);
         LoggerManager.Logger("INFO", "设置已保存");
     }
 
-    private void loadSettings() {
-        GameManager.getInstance().setAspectRatio(FrameworkDataKeys.ASPECT_RATIO.get());
-        GameManager.getInstance().setFullscreen(FrameworkDataKeys.FULLSCREEN.get());
-
-        currentSettings.put("fullscreenMode", FrameworkDataKeys.FULLSCREEN_MODE.get());
-
-        AudioManager.setBackgroundMusicVolumeGlobal(FrameworkDataKeys.BGM_VOLUME.get());
-        AudioManager.setSoundEffectsVolumeGlobal(FrameworkDataKeys.SFX_VOLUME.get());
-
-        String[] keyFunctions = {"MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT", "ACCELERATE", "INTERACT", "MAGIC_ATTACK", "BACKPACK"};
-        for (String function : keyFunctions) {
-            DataKey<Integer> binding = keyBinding(function);
-            if (binding != null && binding.isSet()) {
-                inputHandler.remapKey(function, binding.getInt());
-            }
-        }
-
-        LoggerManager.Logger("INFO", "设置已加载");
-    }
-
+    /**
+     * 把「暂存在面板里」的设置重新套回运行时（取消时用）。
+     *
+     * <p>只处理**编辑期间就立即生效**的那些项 —— 目前是文本速度（拖滑杆时即刻生效）
+     * 与界面语言（切换即刻生效且已落盘）。比例、全屏、音量、按键都只暂存在
+     * {@code currentSettings} 里、等「应用 / 确定」才生效，取消时无需回滚。
+     */
+    /**
+     * 把「编辑期间就立即生效」的设置回滚到打开面板时的值（取消时用）。
+     *
+     * <p>目前只有文本速度属于这类：拖滑杆即刻生效。其它项（比例、全屏、音量、按键）
+     * 都只暂存在 {@code currentSettings} 里、等「应用 / 确定」才生效，无需回滚。
+     *
+     * <p>回滚值来自 {@link #initialTextSpeed} —— <b>不能</b>现读配置：
+     * 拖滑杆时值已经被写进内存配置了，现读只会读回刚改掉的那个值。
+     */
     private void restoreSettings() {
-        loadSettings();
+        currentSettings.remove(GameConstants.SETTING_TEXT_SPEED);
+        FrameworkDataKeys.TEXT_SPEED.setInt(initialTextSpeed);
+
+        LoggerManager.Logger("INFO", "设置已放弃，运行时状态回到打开面板时的值");
     }
 
     private void saveKeyBindings() {
         String[] keyFunctions = {"MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT", "ACCELERATE", "INTERACT", "MAGIC_ATTACK", "BACKPACK"};
-        for (String function : keyFunctions) {
-            DataKey<Integer> binding = keyBinding(function);
-            if (binding == null) {
-                continue;
+        // 八个键合并成一次落盘，而不是写八次文件
+        DataManager.batch(() -> {
+            for (String function : keyFunctions) {
+                DataKey<Integer> binding = keyBinding(function);
+                if (binding == null) {
+                    continue;
+                }
+                binding.setInt(inputHandler.getKeyForFunction(function));
             }
-            binding.setInt(inputHandler.getKeyForFunction(function));
-        }
+        });
     }
 
     /**

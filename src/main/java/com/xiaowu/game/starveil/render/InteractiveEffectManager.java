@@ -1446,8 +1446,16 @@ public class InteractiveEffectManager {
         debugLog("强制停止所有挑战");
     }
 
+    /**
+     * 挑战系统的诊断日志。
+     *
+     * <p>走框架的日志器而不是 {@code System.out.println}：这里的调用点大多在
+     * 按键 / 点击回调与动画时间线里，正常玩一局就会刷出几百行。
+     * 走 {@code DEBUG} 级别后默认不输出，只在 {@code -debug} 启动时才打印。
+     */
     private void debugLog(String message) {
-        System.out.println("[InteractiveEffectManager][" + System.currentTimeMillis() + "] " + message);
+        com.xiaowu.game.starveil.infrastructure.logging.LoggerManager
+                .Logger("DEBUG", "[InteractiveEffectManager] " + message);
     }
 
      

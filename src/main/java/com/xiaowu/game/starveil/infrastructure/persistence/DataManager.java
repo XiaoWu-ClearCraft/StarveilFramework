@@ -67,6 +67,14 @@ public class DataManager {
     private static final String DATA_FILE_NAME = GameConstants.CONFIG_FILE_NAME;
     private static final Gson gson = new GsonBuilder().create();
 
+    /**
+     * 全局配置的内存镜像。
+     *
+     * <p>用 {@link java.util.concurrent.ConcurrentHashMap} 而不是 {@code HashMap}：
+     * <b>它会被两个线程写</b> —— 剧情线程通过 {@code StoryScript.setData} 写，
+     * FX 线程通过设置界面与调试窗口写。普通 {@code HashMap} 在并发写入下
+     * 可能丢数据，极端情况下会陷入死循环把 CPU 打满。
+     */
     private static Map<String, String> dataMap;
     private static File dataFile;
 
@@ -75,14 +83,14 @@ public class DataManager {
             ensureDataDirectory();
             dataFile = new File(GameConstants.DATA_DIR, DATA_FILE_NAME);
             if (!dataFile.exists()) {
-                dataMap = new HashMap<>();
+                dataMap = new java.util.concurrent.ConcurrentHashMap<>();
                 saveData();
                 Logger("DEBUG", "创建新的配置文件: " + dataFile.getAbsolutePath());
             } else {
                 loadData();
             }
         } catch (Exception e) {
-            dataMap = new HashMap<>();
+            dataMap = new java.util.concurrent.ConcurrentHashMap<>();
             Logger("ERROR", "初始化配置管理器失败: " + e.getMessage());
         }
     }
@@ -292,12 +300,71 @@ public class DataManager {
             // 尚未 initialize()（单测、极早期调用）时也要能写入内存 ——
             // 否则「值写不进去」会伪装成「键没注册」，排查方向完全错。
             // 此时 saveData() 会因为没有文件对象而失败并记录日志，写内存不受影响。
-            dataMap = new HashMap<>();
+            dataMap = new java.util.concurrent.ConcurrentHashMap<>();
         }
         MEMORY_OVERRIDES.remove(k);
         dataMap.put(k, coercion.text());
-        saveData();
+        requestSave();
         return true;
+    }
+
+    // ==================== 批量写入 ====================
+
+    /**
+     * 合并多次写入，最后只落盘一次。
+     *
+     * <p><b>为什么需要它</b>：每次写入都会走完整的「Gson 序列化 → AES 加密 →
+     * 阻塞写文件」。滑杆拖动一次会触发几十次 value 变化，绑一遍按键要写八个键 ——
+     * 逐个落盘就是几十次磁盘写入，而且全在 FX 线程上。
+     *
+     * <pre>
+     *   DataManager.batch(() -> {
+     *       FrameworkDataKeys.BGM_VOLUME.set(v);
+     *       FrameworkDataKeys.SFX_VOLUME.set(v);
+     *   });   // 到这里才真正写文件，只写一次
+     * </pre>
+     *
+     * <p>嵌套调用是安全的：只有最外层退出时才落盘。
+     * 中途抛异常也会落盘 —— 已经写进内存的值不该因为后面的代码出错而丢掉。
+     */
+    public static void batch(Runnable writes) {
+        if (writes == null) {
+            return;
+        }
+        if (batchDepth > 0) {
+            // 已经在批量里了，直接执行，由最外层负责落盘
+            writes.run();
+            return;
+        }
+        batchDepth = 1;
+        try {
+            writes.run();
+        } finally {
+            batchDepth = 0;
+            if (batchDirty) {
+                batchDirty = false;
+                saveData();
+            }
+        }
+    }
+
+    /** 批量嵌套层数；0 表示不在批量中。 */
+    private static int batchDepth = 0;
+
+    /** 批量期间是否攒下了未落盘的改动。 */
+    private static boolean batchDirty = false;
+
+    /**
+     * 请求落盘：在批量中就攒着，否则立刻写。
+     *
+     * <p>所有涉及 {@code dataMap} 的写入都必须经由它，别直接调 {@code saveData()}。
+     */
+    private static void requestSave() {
+        if (batchDepth > 0) {
+            batchDirty = true;
+            return;
+        }
+        saveData();
     }
 
     /** 删除键在存储里的值（回到默认值）。 */
@@ -318,7 +385,7 @@ public class DataManager {
         MEMORY_OVERRIDES.remove(k);
         if (dataMap != null) {
             dataMap.remove(k);
-            saveData();
+            requestSave();
         }
     }
 
@@ -667,7 +734,7 @@ public class DataManager {
     public static void clear() {
         if (dataMap != null) {
             dataMap.clear();
-            saveData();
+            requestSave();
         }
     }
 
@@ -694,11 +761,11 @@ public class DataManager {
                 Map<String, String> loadedData = gson.fromJson(json, type);
                 dataMap = Objects.requireNonNullElseGet(loadedData, HashMap::new);
             } else {
-                dataMap = new HashMap<>();
+                dataMap = new java.util.concurrent.ConcurrentHashMap<>();
                 Logger("INFO", "配置文件不存在，使用默认配置");
             }
         } catch (Exception e) {
-            dataMap = new HashMap<>();
+            dataMap = new java.util.concurrent.ConcurrentHashMap<>();
             Logger("ERROR", "加载配置文件失败: " + e.getMessage());
         }
     }

@@ -14,6 +14,8 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
+
  
 public class AchievementManager {
 
@@ -42,7 +44,10 @@ public class AchievementManager {
         if (unlockedAchievements.contains(achievementId)) return;
         Achievement ach = achievements.get(achievementId);
         if (ach == null) {
-            System.err.println("成就ID不存在: " + achievementId);
+            // 框架自己会请求 "welcome" / "exit" 这类成就，但**内容不一定定义了它们** ——
+            // 成就定义整份由内容提供。所以这只是「这条成就这款游戏没有」，
+            // 不是错误；用 ERROR 刷日志会让真正的问题被淹没。
+            Logger("DEBUG", "成就 '" + achievementId + "' 未在内容中定义，跳过解锁");
             return;
         }
         unlockedAchievements.add(achievementId);
@@ -52,7 +57,7 @@ public class AchievementManager {
         NotificationManager.getInstance()
                 .showNotification("成就解锁!", ach.name, ach.iconPath, 5);
 
-        System.out.println("成就解锁成功: " + ach.name + " (" + achievementId + ")");
+        Logger("INFO", "成就解锁: " + ach.name + " (" + achievementId + ")");
     }
 
     /**
@@ -67,7 +72,7 @@ public class AchievementManager {
             return false;
         }
         saveUnlockedAchievements();
-        System.out.println("成就已锁定: " + achievementId);
+        Logger("INFO", "成就已锁定: " + achievementId);
         return true;
     }
 
@@ -125,7 +130,7 @@ public class AchievementManager {
     public void resetAllAchievements() {
         unlockedAchievements.clear();
         saveUnlockedAchievements();
-        System.out.println("所有成就已重置");
+        Logger("INFO", "所有成就已重置");
     }
 
     public void testMultipleAchievements() {
@@ -151,7 +156,7 @@ public class AchievementManager {
         try {
             Files.createDirectories(Paths.get(DATA_DIR));
         } catch (Exception e) {
-            System.err.println("创建data目录失败: " + e.getMessage());
+            Logger("ERROR", "创建成就数据目录失败: " + e.getMessage());
         }
     }
 
@@ -167,10 +172,13 @@ public class AchievementManager {
                 // 刻意不回退到内置默认成就：那是示例数据，混进来会污染真实内容，
                 // 也让「没配成就」看起来像「配了几个莫名其妙的成就」。
                 // 主菜单会据此隐藏成就入口（见 Menu.hasAchievements）。
-                System.err.println("未提供成就定义(" + ACHIEVEMENTS_JSON + ")，成就列表留空");
+                // 记 INFO 而不是 ERROR：这是内容的一种正当配置，不是故障 ——
+                // 用 ERROR 会让真正的问题淹没在每次启动的噪音里。
+                Logger("INFO", "未提供成就定义(" + ACHIEVEMENTS_JSON + ")，成就列表留空，"
+                        + "主菜单不显示成就入口");
             }
         } catch (Exception e) {
-            System.err.println("加载成就定义失败，成就列表留空: " + e.getMessage());
+            Logger("ERROR", "加载成就定义失败，成就列表留空: " + e.getMessage());
         }
     }
 
@@ -195,7 +203,7 @@ public class AchievementManager {
             Path path = Paths.get(DATA_DIR, "achievements_reference.json");
             Files.write(path, gson.toJson(achievements).getBytes());
         } catch (Exception e) {
-            System.err.println("保存默认成就参考文件失败: " + e.getMessage());
+            Logger("ERROR", "保存成就参考文件失败: " + e.getMessage());
         }
     }
 
@@ -209,7 +217,7 @@ public class AchievementManager {
             Set<String> loaded = gson.fromJson(json, type);
             if (loaded != null) unlockedAchievements = loaded;
         } catch (Exception e) {
-            System.err.println("加载成就数据失败: " + e.getMessage());
+            Logger("ERROR", "加载成就数据失败: " + e.getMessage());
         }
     }
 
@@ -219,7 +227,7 @@ public class AchievementManager {
             String json = gson.toJson(unlockedAchievements);
             FileCrypto.encryptAndSave(ACHIEVEMENTS_DATA_FILE, json);
         } catch (Exception e) {
-            System.err.println("保存成就数据失败: " + e.getMessage());
+            Logger("ERROR", "保存成就数据失败: " + e.getMessage());
         }
         // 无论落盘成功与否，内存状态都已经变了 —— 监听者要据此刷新
         fireChanged();

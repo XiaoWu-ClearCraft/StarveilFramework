@@ -294,6 +294,98 @@ class DataKeyRegistrationTest {
         assertNull(s.get(), "「没有值」与「值是空串」是两件事");
     }
 
+    // ==================== 批量写入 ====================
+
+    /**
+     * 批量写入只应落盘一次。
+     *
+     * <p>判定方式是数变更通知：{@code saveData()} 是所有落盘的唯一出口，
+     * 每次落盘都会 {@code fireChanged()}，所以监听器被叫了几次就是落盘了几次。
+     *
+     * <p>这条为什么重要：滑杆拖动一次会触发几十次 value 变化，绑一遍按键要写八个键。
+     * 不合并的话每次写入都要完整序列化 + AES 加密 + 阻塞写文件，而且全在 FX 线程上。
+     */
+    @Test
+    void batchFlushesOnlyOnce() {
+        DataKey<Integer> a = DataManager.defineInt("t", "batch_a", 0);
+        DataKey<Integer> b = DataManager.defineInt("t", "batch_b", 0);
+        DataKey<Integer> c = DataManager.defineInt("t", "batch_c", 0);
+
+        int[] flushes = {0};
+        Runnable listener = () -> flushes[0]++;
+        DataManager.addChangeListener(listener);
+        try {
+            DataManager.batch(() -> {
+                a.set(1);
+                b.set(2);
+                c.set(3);
+            });
+
+            assertEquals(1, flushes[0], "三次写入应当只落盘一次");
+            assertEquals(1, a.getInt(), "值仍然要写进去");
+            assertEquals(2, b.getInt());
+            assertEquals(3, c.getInt());
+        } finally {
+            DataManager.removeChangeListener(listener);
+        }
+    }
+
+    @Test
+    void batchWithoutWritesDoesNotFlush() {
+        int[] flushes = {0};
+        Runnable listener = () -> flushes[0]++;
+        DataManager.addChangeListener(listener);
+        try {
+            DataManager.batch(() -> { });
+            assertEquals(0, flushes[0], "什么都没写就不该落盘");
+        } finally {
+            DataManager.removeChangeListener(listener);
+        }
+    }
+
+    @Test
+    void nestedBatchStillFlushesOnce() {
+        DataKey<Integer> a = DataManager.defineInt("t", "nest_a", 0);
+        DataKey<Integer> b = DataManager.defineInt("t", "nest_b", 0);
+
+        int[] flushes = {0};
+        Runnable listener = () -> flushes[0]++;
+        DataManager.addChangeListener(listener);
+        try {
+            DataManager.batch(() -> {
+                a.set(1);
+                DataManager.batch(() -> b.set(2));
+                a.set(3);
+            });
+
+            assertEquals(1, flushes[0], "嵌套批量也只有最外层落盘一次");
+            assertEquals(3, a.getInt());
+            assertEquals(2, b.getInt());
+        } finally {
+            DataManager.removeChangeListener(listener);
+        }
+    }
+
+    @Test
+    void batchStillFlushesWhenTheBodyThrows() {
+        DataKey<Integer> a = DataManager.defineInt("t", "throw_a", 0);
+
+        int[] flushes = {0};
+        Runnable listener = () -> flushes[0]++;
+        DataManager.addChangeListener(listener);
+        try {
+            assertThrows(IllegalStateException.class, () -> DataManager.batch(() -> {
+                a.set(9);
+                throw new IllegalStateException("中途出错");
+            }));
+
+            assertEquals(1, flushes[0], "已经写进内存的值不该因为后面的代码出错而丢掉");
+            assertEquals(9, a.getInt());
+        } finally {
+            DataManager.removeChangeListener(listener);
+        }
+    }
+
     // ==================== 未注册键 ====================
 
     @Test

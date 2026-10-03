@@ -4,6 +4,7 @@ import com.xiaowu.game.starveil.infrastructure.ContentConfig;
 import com.xiaowu.game.starveil.infrastructure.i18n.I18n;
 import com.xiaowu.game.starveil.infrastructure.i18n.LanguageSettings;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
+import com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys;
 import com.xiaowu.game.starveil.input.InputHandler;
 import com.xiaowu.game.starveil.render.engine.RenderEngineProvider;
 import com.xiaowu.game.starveil.render.engine.javafx.JavaFXRenderEngine;
@@ -206,5 +207,44 @@ class SettingManagerLanguageTest {
         ContentConfig.addLanguage("zh_cn", "简体中文");
         String tree = buildSettingsTreeAndCollectText();
         assertTrue(tree.contains("设置"), "至少标题应该是当前语言（zh_cn）:\n" + tree);
+    }
+
+    /**
+     * 「取消」要能走完并回滚文本速度。
+     *
+     * <p>取消路径里有回滚逻辑（文本速度在编辑期间就即时生效），必须真的能被触发
+     * 且不抛异常 —— 它是玩家会点到的按钮，不是冷代码。
+     */
+    @Test
+    void cancelRollsBackLiveAppliedTextSpeed() throws Exception {
+        Assumptions.assumeTrue(toolkitReady, "测试环境起不了 JavaFX 工具包，跳过界面测试");
+
+        int original = FrameworkDataKeys.TEXT_SPEED.get();
+        int edited = original == 137 ? 42 : 137;
+
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+
+        Platform.runLater(() -> {
+            try {
+                SettingManager manager = new SettingManager(new InputHandler());
+                manager.createRoot();
+                // 模拟玩家在编辑期间把文本速度拖走（这一项是即时生效的）
+                FrameworkDataKeys.TEXT_SPEED.setInt(edited);
+                assertEquals(edited, FrameworkDataKeys.TEXT_SPEED.get());
+                manager.closeWithoutSave();
+            } catch (Throwable t) {
+                failure.set(t);
+            } finally {
+                done.countDown();
+            }
+        });
+
+        assertTrue(done.await(30, TimeUnit.SECONDS), "取消操作超时");
+        if (failure.get() != null) {
+            throw new AssertionError("取消设置时抛异常: " + failure.get(), failure.get());
+        }
+        assertEquals(original, FrameworkDataKeys.TEXT_SPEED.get(),
+                "取消后文本速度应当回到打开面板时的值");
     }
 }

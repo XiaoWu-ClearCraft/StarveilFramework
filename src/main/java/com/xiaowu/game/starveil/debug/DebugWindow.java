@@ -990,7 +990,10 @@ public final class DebugWindow {
                     iconLabel.setIcon(new ImageIcon(scaled));
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // 图标读不出来就只显示名字 —— 调试窗口的工具格子，
+            // 为一个图标失败中断整格渲染不划算
+        }
 
         // 名称
         JLabel nameLabel = new JLabel(item.getName());
@@ -1095,7 +1098,9 @@ public final class DebugWindow {
                             iconLabel.setIcon(new ImageIcon(scaled));
                         }
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    // 同上：图标失败不影响这一格的其他信息
+                }
             }
         } else {
             textLabel.setText("空");
