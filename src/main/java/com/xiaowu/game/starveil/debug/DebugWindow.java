@@ -835,7 +835,10 @@ public final class DebugWindow {
         if (cfgKeyCombo.isFocusOwner() || cfgValueField.isFocusOwner()) {
             return;
         }
-        List<String> keys = new java.util.ArrayList<>(DataManager.getAll().keySet());
+        // 三个来源合起来才是「所有可用的键」：
+        //   已注册的键（含还没设过值的） + 存档里的 + 调试覆盖的
+        List<String> keys = new java.util.ArrayList<>(DataManager.registeredKeys());
+        keys.addAll(DataManager.getAll().keySet());
         keys.addAll(DataManager.getMemoryOverrides().keySet());
         List<String> sorted = keys.stream().distinct().sorted().collect(java.util.stream.Collectors.toList());
 

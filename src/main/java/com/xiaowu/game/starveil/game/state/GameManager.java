@@ -1,6 +1,7 @@
 package com.xiaowu.game.starveil.game.state;
 
 import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
+import com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys;
 import com.xiaowu.game.starveil.game.quest.AchievementManager;
 import com.xiaowu.game.starveil.game.world.WorldMap;
 import com.xiaowu.game.starveil.config.GameConstants;
@@ -143,11 +144,13 @@ public class GameManager {
      * 用于每次回到“顶层界面”（如主菜单）时，确保不会停留在游戏期间的全屏状态。
      */
     public void applyWindowSettings() {
-        String aspectRatio = DataManager.get(GameConstants.SETTING_ASPECT_RATIO, "16:9");
+        String aspectRatio = com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .ASPECT_RATIO.get();
         if (aspectRatio != null && !aspectRatio.isEmpty()) {
             setAspectRatio(aspectRatio);
         }
-        Boolean fullscreen = DataManager.getBoolean(GameConstants.SETTING_FULLSCREEN, false);
+        Boolean fullscreen = com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .FULLSCREEN.get();
         if (fullscreenProperty.get() != fullscreen) {
             fullscreenProperty.set(fullscreen);
         }
@@ -270,7 +273,7 @@ public class GameManager {
                 Logger("DEBUG", "fullscreenProperty监听器被触发: " + newValue);
 
                 // 获取用户选择的全屏模式
-                String fullscreenMode = DataManager.get("starveil:setting.fullscreen_mode", "无边框窗口");
+                String fullscreenMode = FrameworkDataKeys.FULLSCREEN_MODE.get();
 
                 // 根据全屏模式使用不同的实现方式
                 if ("无边框窗口".equals(fullscreenMode)) {
@@ -281,7 +284,7 @@ public class GameManager {
                     primaryStage.setFullScreenExitHint("");
                     primaryStage.setFullScreen(newValue);
                     // 更新DataManager中的全屏设置
-                    DataManager.set("starveil:setting.fullscreen", String.valueOf(newValue));
+                    FrameworkDataKeys.FULLSCREEN.set(newValue);
                 }
             }));
 
@@ -422,7 +425,7 @@ public class GameManager {
         Logger("DEBUG", "applyFullscreen被调用: " + isFullscreen);
 
         // 获取用户选择的全屏模式
-        String fullscreenMode = DataManager.get("starveil:setting.fullscreen_mode", "无边框窗口");
+        String fullscreenMode = FrameworkDataKeys.FULLSCREEN_MODE.get();
 
         // 根据全屏模式使用不同的实现方式
         if ("无边框窗口".equals(fullscreenMode)) {
@@ -483,7 +486,7 @@ public class GameManager {
         }
 
         // 更新DataManager中的全屏设置
-        DataManager.set("starveil:setting.fullscreen", String.valueOf(isFullscreen));
+        FrameworkDataKeys.FULLSCREEN.set(isFullscreen);
     }
 
     public void toggleFullscreen() {
@@ -613,7 +616,7 @@ public class GameManager {
 
     private boolean shouldPreventExit() {
         try {
-            return DataManager.getBoolean("CantExit", false);
+            return DataManager.isExitBlocked();
         } catch (Exception e) {
             return false;
         }

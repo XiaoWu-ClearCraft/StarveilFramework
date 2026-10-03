@@ -193,8 +193,13 @@ public class GameInstance {
         createViewport();
         worldMap.setGameContainer(gameContainer);
 
-        // 清空存档变量（新游戏时）
+        // 清空存档变量（新游戏时）并进入「有活跃存档」状态 ——
+        // 后者决定存档作用域的数据键（如 starveil:cant_exit）读写的是本存档而不是全局。
         SaveDataManager.getInstance().clear();
+        SaveDataManager.setActive(true);
+
+        // 教程进度的保存范围（随存档 / 跨存档）在存档会话开始时确定，之后不再变动
+        com.xiaowu.game.starveil.infrastructure.persistence.TutorialState.applyPersistMode();
 
         // 初始化游戏UI（血条、渐变背景、消息显示）
         GameUI.getInstance().attachToGame();
@@ -1026,6 +1031,10 @@ public class GameInstance {
 
                 AudioManager.stopBackgroundMusic();
 
+                // 离开存档会话：此后存档作用域的数据键（如 starveil:cant_exit）
+                // 回落到全局配置，而不是继续沿用刚刚那一局的存档值。
+                SaveDataManager.setActive(false);
+
                 Menu menu = new Menu();
                 // 从GameManager获取当前stage，确保使用的是最新的stage
                 Stage currentStage = GameManager.getInstance().getPrimaryStage();
@@ -1250,6 +1259,8 @@ public class GameInstance {
             // 同上：复活失败回主菜单也要复位，否则残留标志会带进下一局。
             ChatManager.getInstance().forceCloseAll();
             closeDeathScreen();
+            // 离开存档会话，存档作用域的数据键回落到全局配置
+            SaveDataManager.setActive(false);
             javafx.application.Platform.runLater(() -> {
                 try {
                     Menu menu = new Menu();

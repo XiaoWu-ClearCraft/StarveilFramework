@@ -149,12 +149,14 @@ public class PluginLoader {
         }
         consentChecked = true;
 
-        if (DataManager.getBoolean(GameConstants.PLUGIN_CONSENT_KEY, false)) {
+        if (com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .PLUGIN_CONSENT_GIVEN.get()) {
             Logger("INFO", "插件加载同意标记已存在，直接加载插件");
             return true;
         }
         if (showPluginConsentDialog()) {
-            DataManager.setBoolean(GameConstants.PLUGIN_CONSENT_KEY, true);
+            com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                    .PLUGIN_CONSENT_GIVEN.set(true);
             Logger("INFO", "用户同意加载插件，已保存同意标记");
             return true;
         }

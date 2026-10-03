@@ -281,7 +281,8 @@ public class BGMManager {
      */
     public void setInterval(long intervalMillis) {
         this.intervalMillis = intervalMillis;
-        DataManager.set(GameConstants.SETTING_BGM_INTERVAL, String.valueOf(intervalMillis));
+        com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys.BGM_INTERVAL
+                .set(intervalMillis);
         LoggerManager.Logger("INFO", "BGM 间隔时间已更新: " + intervalMillis + " 毫秒");
         // 不重新安排，下次播放时使用新间隔时间
     }

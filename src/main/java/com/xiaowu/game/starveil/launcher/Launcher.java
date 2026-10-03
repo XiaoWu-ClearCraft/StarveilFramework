@@ -2,6 +2,7 @@ package com.xiaowu.game.starveil.launcher;
 
 import com.xiaowu.game.starveil.infrastructure.audio.AudioManager;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
+import com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys;
 import com.xiaowu.game.starveil.debug.DebugWindow;
 import com.xiaowu.game.starveil.config.LauncherConfig;
 import com.xiaowu.game.starveil.platform.common.HardwareManager;
@@ -54,11 +55,13 @@ public class Launcher {
             com.xiaowu.game.starveil.plugin.PluginLoader.unloadAllPlugins();
             cleanupLock();
         }));
-        cleanupTempConfigs();
 
+        // 异常关闭标记是【临时键】（见 FrameworkDataKeys.ILLEGALLY_SHUTDOWN）：
+        // 只写在内存里，进程结束即消失。因此不再需要「下次启动时清理残留」的逻辑，
+        // 之前那套 cleanupTempConfigs() 随之作废 —— 被强杀也不会留下脏标记。
         if (IllegallyShutdown) {
-            DataManager.set(GameConstants.ILLEGALLY_SHUTDOWN_KEY, "true");
-            Logger("DEBUG", "检测到上次异常关闭，已设置标记");
+            FrameworkDataKeys.ILLEGALLY_SHUTDOWN.set(true);
+            Logger("DEBUG", "检测到上次异常关闭，已设置临时标记");
         }
 
         // 在JavaFX启动后显示DebugWindow（如果启用了调试模式）
@@ -108,7 +111,7 @@ public class Launcher {
             Logger("INFO", "测试模式：强制显示兼容性警告");
         } else {
             // 检查是否已忽略过
-            if (DataManager.getBoolean("starveil:compatibility_warning_shown", false)) {
+            if (FrameworkDataKeys.COMPATIBILITY_WARNING_SHOWN.get()) {
                 return;
             }
             
@@ -153,20 +156,8 @@ public class Launcher {
             Logger("INFO", "用户选择退出游戏（兼容性原因）");
             System.exit(0);
         } else {
-            DataManager.setBoolean("starveil:compatibility_warning_shown", true);
+            FrameworkDataKeys.COMPATIBILITY_WARNING_SHOWN.set(true);
             Logger("INFO", "用户选择忽略兼容性提示，已记录");
-        }
-    }
-
-    private static void cleanupTempConfigs() {
-        if (DataManager.contains(GameConstants.CANT_EXIT_KEY)) {
-            DataManager.remove(GameConstants.CANT_EXIT_KEY);
-            Logger("DEBUG", "清理临时退出阻止标记");
-        }
-
-        if (!IllegallyShutdown && DataManager.contains(GameConstants.ILLEGALLY_SHUTDOWN_KEY)) {
-            DataManager.remove(GameConstants.ILLEGALLY_SHUTDOWN_KEY);
-            Logger("DEBUG", "清理异常关闭标记（本次正常启动）");
         }
     }
 
@@ -213,15 +204,8 @@ public class Launcher {
         AudioManager.getInstance();
 
         // 加载音频设置
-        String bgmVolume = DataManager.get(GameConstants.SETTING_BGM_VOLUME, String.valueOf(GameConstants.DEFAULT_BGM_VOLUME));
-        if (bgmVolume != null) {
-            AudioManager.setBackgroundMusicVolumeGlobal(Double.parseDouble(bgmVolume));
-        }
-
-        String sfxVolume = DataManager.get(GameConstants.SETTING_SFX_VOLUME, String.valueOf(GameConstants.DEFAULT_SFX_VOLUME));
-        if (sfxVolume != null) {
-            AudioManager.setSoundEffectsVolumeGlobal(Double.parseDouble(sfxVolume));
-        }
+        AudioManager.setBackgroundMusicVolumeGlobal(FrameworkDataKeys.BGM_VOLUME.get());
+        AudioManager.setSoundEffectsVolumeGlobal(FrameworkDataKeys.SFX_VOLUME.get());
 
         Logger("INFO", "游戏设置已应用");
     }

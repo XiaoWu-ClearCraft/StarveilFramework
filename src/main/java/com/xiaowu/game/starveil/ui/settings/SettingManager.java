@@ -4,6 +4,8 @@ import com.xiaowu.game.starveil.infrastructure.ContentConfig;
 import com.xiaowu.game.starveil.infrastructure.audio.AudioManager;
 import com.xiaowu.game.starveil.infrastructure.audio.BGMManager;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
+import com.xiaowu.game.starveil.infrastructure.persistence.DataKey;
+import com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys;
 import com.xiaowu.game.starveil.game.state.GameManager;
 import com.xiaowu.game.starveil.input.InputHandler;
 import com.xiaowu.game.starveil.infrastructure.logging.LoggerManager;
@@ -444,7 +446,7 @@ public class SettingManager {
             List.of("无边框窗口", "全屏"),
             200
         );
-        String currentFullscreenMode = DataManager.get(GameConstants.SETTING_FULLSCREEN_MODE, "无边框窗口");
+        String currentFullscreenMode = FrameworkDataKeys.FULLSCREEN_MODE.get();
         renderEngine.setComboBoxSelectedValue(fullscreenModeHandle, currentFullscreenMode);
         renderEngine.setBackground(fullscreenModeHandle.getNativeHandle(),
             "-fx-background-color: #FFE4E1; -fx-background-radius: 10;");
@@ -462,7 +464,7 @@ public class SettingManager {
             "文本速度",
             new TextStyle("System", 14, false, false, renderEngine.createColor("#8B4513"), 0, 1.5)
         );
-        int currentSpeed = DataManager.getInt(GameConstants.SETTING_TEXT_SPEED, 50);
+        int currentSpeed = FrameworkDataKeys.TEXT_SPEED.get();
         SliderHandle textSpeedHandle = renderEngine.createSlider(10, 200, currentSpeed, 200);
         renderEngine.setSliderTickConfig(textSpeedHandle, true, false, 50, 4, false);
         renderEngine.setBackground(textSpeedHandle.getNativeHandle(),
@@ -470,7 +472,7 @@ public class SettingManager {
         renderEngine.addSliderListener(textSpeedHandle, (oldVal, newVal) -> {
             int val = newVal.intValue();
             currentSettings.put(GameConstants.SETTING_TEXT_SPEED, val);
-            DataManager.setInt(GameConstants.SETTING_TEXT_SPEED, val);
+            FrameworkDataKeys.TEXT_SPEED.setInt(val);
         });
 
         // 显示当前速度值的标签
@@ -616,18 +618,18 @@ public class SettingManager {
         if (aspectRatio == null || aspectRatio.isEmpty()) {
             aspectRatio = GameManager.getInstance().getAspectRatioString();
         }
-        DataManager.set(GameConstants.SETTING_ASPECT_RATIO, aspectRatio);
+        FrameworkDataKeys.ASPECT_RATIO.set(aspectRatio);
         GameManager.getInstance().setAspectRatio(aspectRatio);
 
-        DataManager.set(GameConstants.SETTING_FULLSCREEN, String.valueOf(GameManager.getInstance().isFullscreen()));
+        FrameworkDataKeys.FULLSCREEN.set(GameManager.getInstance().isFullscreen());
 
         String fullscreenMode = (String) currentSettings.get("fullscreenMode");
         if (fullscreenMode != null) {
-            DataManager.set(GameConstants.SETTING_FULLSCREEN_MODE, fullscreenMode);
+            FrameworkDataKeys.FULLSCREEN_MODE.set(fullscreenMode);
         }
 
-        DataManager.set(GameConstants.SETTING_BGM_VOLUME, String.valueOf(AudioManager.getBackgroundMusicVolume()));
-        DataManager.set(GameConstants.SETTING_SFX_VOLUME, String.valueOf(AudioManager.getSoundEffectsVolume()));
+        FrameworkDataKeys.BGM_VOLUME.set(AudioManager.getBackgroundMusicVolume());
+        FrameworkDataKeys.SFX_VOLUME.set(AudioManager.getSoundEffectsVolume());
 
         saveKeyBindings();
         NotificationManager.getInstance()
@@ -636,34 +638,19 @@ public class SettingManager {
     }
 
     private void loadSettings() {
-        String aspectRatio = DataManager.get(GameConstants.SETTING_ASPECT_RATIO, "16:9");
-        if (aspectRatio != null) {
-            GameManager.getInstance().setAspectRatio(aspectRatio);
-        }
+        GameManager.getInstance().setAspectRatio(FrameworkDataKeys.ASPECT_RATIO.get());
+        GameManager.getInstance().setFullscreen(FrameworkDataKeys.FULLSCREEN.get());
 
-        String fullscreen = DataManager.get(GameConstants.SETTING_FULLSCREEN, "false");
-        if (fullscreen != null) {
-            GameManager.getInstance().setFullscreen(Boolean.parseBoolean(fullscreen));
-        }
+        currentSettings.put("fullscreenMode", FrameworkDataKeys.FULLSCREEN_MODE.get());
 
-        String fullscreenMode = DataManager.get(GameConstants.SETTING_FULLSCREEN_MODE, "无边框窗口");
-        currentSettings.put("fullscreenMode", fullscreenMode);
-
-        String bgmVolume = DataManager.get(GameConstants.SETTING_BGM_VOLUME, String.valueOf(GameConstants.DEFAULT_BGM_VOLUME));
-        if (bgmVolume != null) {
-            AudioManager.setBackgroundMusicVolumeGlobal(Double.parseDouble(bgmVolume));
-        }
-
-        String sfxVolume = DataManager.get(GameConstants.SETTING_SFX_VOLUME, String.valueOf(GameConstants.DEFAULT_SFX_VOLUME));
-        if (sfxVolume != null) {
-            AudioManager.setSoundEffectsVolumeGlobal(Double.parseDouble(sfxVolume));
-        }
+        AudioManager.setBackgroundMusicVolumeGlobal(FrameworkDataKeys.BGM_VOLUME.get());
+        AudioManager.setSoundEffectsVolumeGlobal(FrameworkDataKeys.SFX_VOLUME.get());
 
         String[] keyFunctions = {"MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT", "ACCELERATE", "INTERACT", "MAGIC_ATTACK", "BACKPACK"};
         for (String function : keyFunctions) {
-            String keyValue = DataManager.get("starveil:setting.key." + function);
-            if (keyValue != null) {
-                inputHandler.remapKey(function, Integer.parseInt(keyValue));
+            DataKey<Integer> binding = keyBinding(function);
+            if (binding != null && binding.isSet()) {
+                inputHandler.remapKey(function, binding.getInt());
             }
         }
 
@@ -677,8 +664,37 @@ public class SettingManager {
     private void saveKeyBindings() {
         String[] keyFunctions = {"MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT", "ACCELERATE", "INTERACT", "MAGIC_ATTACK", "BACKPACK"};
         for (String function : keyFunctions) {
-            int keyCode = inputHandler.getKeyForFunction(function);
-            DataManager.set("starveil:setting.key." + function, String.valueOf(keyCode));
+            DataKey<Integer> binding = keyBinding(function);
+            if (binding == null) {
+                continue;
+            }
+            binding.setInt(inputHandler.getKeyForFunction(function));
         }
+    }
+
+    /**
+     * 取按键绑定对应的数据键。
+     *
+     * <p>绑定键是<b>逐个注册</b>的（见 {@code FrameworkDataKeys.KEY_BIND_*}
+     * 与 {@code SettingManagerDataKeys}）：只有注册过的键才能读写，
+     * 因此这里必须把功能名映射到具体键，不能再靠字符串拼一个键名出来。
+     *
+     * @return 对应键；功能名未知时返回 {@code null} 并告警
+     */
+    private static DataKey<Integer> keyBinding(String function) {
+        return switch (function) {
+            case "MOVE_UP" -> FrameworkDataKeys.KEY_BIND_MOVE_UP;
+            case "MOVE_DOWN" -> FrameworkDataKeys.KEY_BIND_MOVE_DOWN;
+            case "MOVE_LEFT" -> FrameworkDataKeys.KEY_BIND_MOVE_LEFT;
+            case "MOVE_RIGHT" -> FrameworkDataKeys.KEY_BIND_MOVE_RIGHT;
+            case "ACCELERATE" -> FrameworkDataKeys.KEY_BIND_ACCELERATE;
+            case "INTERACT" -> FrameworkDataKeys.KEY_BIND_INTERACT;
+            case "MAGIC_ATTACK" -> FrameworkDataKeys.KEY_BIND_MAGIC_ATTACK;
+            case "BACKPACK" -> FrameworkDataKeys.KEY_BIND_BACKPACK;
+            default -> {
+                LoggerManager.Logger("WARNING", "未知的按键功能名，无法保存绑定: " + function);
+                yield null;
+            }
+        };
     }
 }

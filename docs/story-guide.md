@@ -875,11 +875,11 @@ gameInstance.getGravityDirection();
 
 ### 4. 惯性与急停
 
-惯性由 `DataManager` 的特殊键控制，**默认开启**：
+惯性由数据键控制，**默认开启**：
 
 ```java
-DataManager.isInertiaEnabled();               // 默认 true
-DataManager.setBoolean(GameConstants.INERTIA_KEY, false);  // 关闭
+FrameworkDataKeys.INERTIA.get();     // 默认 true
+FrameworkDataKeys.INERTIA.set(false); // 关闭
 ```
 
 - **开启**：移动带加减速（`PlayerController.accelRate` / `decelRate`），松开方向键会滑行一小段。
@@ -900,36 +900,57 @@ DataManager.setBoolean(GameConstants.INERTIA_KEY, false);  // 关闭
 
 ### 5. 键空间规范
 
-#### 5.1 特殊键（`SpecialKeys`）
+#### 5.1 数据键必须先注册
 
-「特殊键」指会被当前存档覆盖的全局配置键（既有 data.dat 默认值，又能被存档改写）。
+任何键在使用前都要先声明，声明时写清**命名空间、键名、默认值**；
+值的 java 类型决定键的类型。读写只用句柄，不需要在每个调用点重复填默认值。
+
+```java
+// 声明一次（通常作为 static final 字段）
+public static final DataKey<Integer> KILLS =
+        DataManager.defineInt("chapter3", "kills", 0, DataKeyFlag.PER_SAVE);
+
+// 之后到处都用它
+KILLS.set(5);
+int v = KILLS.get();          // 完整键名 chapter3:kills
+```
 
 - 内置键一律带 `starveil:` 前缀：`starveil:cant_exit`、`starveil:inertia`
-- 第三方注册**必须**带自己的命名空间：`myplugin:some_key`
-- `starveil:` 是引擎保留命名空间，第三方不得占用
+- 第三方用**自己的命名空间**：`myplugin:some_key`
+- `starveil:` 是引擎保留命名空间
 - 无前缀的裸名会被拒绝
+- 类型不符的写入会被拒绝（数值之间只允许无损拓宽）
 
-历史遗留的裸名 `CantExit` 由迁移表兜住，配置加载时自动改写成 `starveil:cant_exit`，
-老玩家的「禁止退出」设置不会丢。
+`DataKeyFlag.PER_SAVE` 表示这是**存档作用域**的键 ——
+既有 `data.dat` 默认值，又能被当前存档改写。
+详见 [数据键](data-keys.md)。
+
+> **没有历史迁移。** 框架仍在测试阶段，老存档与老配置直接删掉即可。
+> 裸名 `CantExit` 既不是合法键、也不会被映射到 `starveil:cant_exit`。
 
 #### 5.2 存档变量（`SaveDataManager`）
 
-非特殊键会自动补上章节前缀，且**必须提前登记**：
+存档变量与数据键共用同一套注册规则，只是加了 `PER_SAVE` 标记：
 
 ```java
-SaveDataManager.SaveKey kills = new SaveDataManager.SaveKey("chapter3", "123");
-SaveDataManager.getInstance().registerKey(kills);   // 必须先登记
+public static final DataKey<Integer> CHAPTER3_KILLS =
+        DataManager.defineInt("chapter3", "kills", 0, DataKeyFlag.PER_SAVE);
 
-SaveDataManager.getInstance().setScopedInt(kills, 5);
-int v = SaveDataManager.getInstance().getScopedInt(kills, 0);   // 实际键: chapter3:123
+CHAPTER3_KILLS.set(5);
+int v = CHAPTER3_KILLS.get();   // 实际键: chapter3:kills
 ```
 
-- 特殊键（如 `starveil:inertia`）保持自身，**不加**章节前缀。
-- 未登记的键直接抛异常 —— 把「拼错键名」从「静默丢数据」变成「启动即报错」。
-  存档变量一旦写错名字，玩家只会看到进度莫名消失。
-- `clear()`（新游戏）清变量值但**保留键登记**：登记是模式，不是数据。
+- 未注册的键**写不进去**，读只会拿到默认值 —— 把「拼错键名」从
+  「静默丢数据」变成「日志里明确的告警」。存档变量一旦写错名字，
+  玩家只会看到进度莫名消失。
+- `clear()`（新游戏）清变量值但**保留键注册**：注册是模式，不是数据。
 
-之所以用 `SaveKey` 值对象而不是两个 `String` 参数：本类已有
+还有一种更省事的写法：用 `SaveKey` 值对象承载「命名空间 + 名字」两个字段。
+之所以不做成两个 `String` 参数，是因为本类已有
 `getString(String key, String defaultValue)`，再叠加
 `getString(String namespace, String name)` 会因为参数类型完全相同而无法重载。
+
+```java
+SaveDataManager.SaveKey key = new SaveDataManager.SaveKey("chapter3", "123");
+```
 

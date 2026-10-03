@@ -48,6 +48,15 @@ public class  GameConstants {
     public static final String ICON_PATH = "starveil:textures/icons/app-icon.png";
     public static final String BACKGROUND_IMG_PATH = "starveil:textures/backgrounds/main-menu.png";
     
+    // ==================== 数据键名 ====================
+    //
+    // 这些常量是键名的「单一事实源」：注册表按它们声明键
+    // （见 FrameworkDataKeys），调用点需要裸字符串键名时也用它们，
+    // 因此名字对不上就等于键没注册。
+    //
+    // 新代码应当直接使用 FrameworkDataKeys 里的 DataKey 句柄，
+    // 只在「必须传字符串」的地方才引用这些常量。
+
     // 游戏设置键名常量
     public static final String SETTING_ASPECT_RATIO = "starveil:setting.aspect_ratio";
     public static final String SETTING_FULLSCREEN = "starveil:setting.fullscreen";
@@ -74,8 +83,9 @@ public class  GameConstants {
     /**
      * 「禁止退出」标记。
      *
-     * <p>内置特殊键一律带 {@code starveil:} 前缀（见 {@code SpecialKeys}）。
-     * 历史值是裸名 {@code CantExit}，老配置由 {@code SpecialKeys} 的迁移表兜住。
+     * <p>内置键一律带 {@code starveil:} 前缀。这个键是<b>存档作用域</b>：
+     * 全局可以有基准值，某段剧情也能只在当前存档里禁掉退出。
+     * 键定义见 {@code FrameworkDataKeys.CANT_EXIT}，规则见 {@code docs/data-keys.md}。
      */
     public static final String CANT_EXIT_KEY = "starveil:cant_exit";
     /**

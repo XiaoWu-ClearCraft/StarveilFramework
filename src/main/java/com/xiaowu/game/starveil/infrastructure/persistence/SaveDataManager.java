@@ -9,42 +9,49 @@ import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logg
 
 /**
  * 存档变量管理器
- * 
- * 功能特点：
- * - 管理游戏过程中的存档变量（与特定存档绑定的变量）
- * - 这些变量会随当前存档保存在 save.dat 中
- * - 仅在当前游玩的实例中有效
- * - 存档和读取时保持有效
- * - 不存储在 data.dat（全局配置）中
- * 
- * 使用示例：
+ *
+ * <p>管理游戏过程中的存档变量（与特定存档绑定的变量）：这些变量随当前存档保存在
+ * {@code save.dat} 中，仅在当前游玩的实例中有效，不写进 {@code data.dat}（全局配置）。
+ *
+ * <p><b>键必须先注册</b> —— 与 {@link DataManager} 同一套规则、同一个注册表。
+ * 注册写明命名空间与键名（以及默认值/类型），读取时按注册的类型校验。
+ *
  * <pre>
- * // 设置变量
- * SaveDataManager.getInstance().setString("chapter", "1");
- * SaveDataManager.getInstance().setInt("killed_enemies", 10);
- * SaveDataManager.getInstance().setBoolean("has_key", true);
- * 
- * // 获取变量
- * String chapter = SaveDataManager.getInstance().getString("chapter");
- * int killed = SaveDataManager.getInstance().getInt("killed_enemies", 0);
- * boolean hasKey = SaveDataManager.getInstance().getBoolean("has_key", false);
- * 
+ *   // 声明
+ *   DataKey&lt;Integer&gt; KILLS = DataManager.defineInt("chapter3", "kills", 0,
+ *           DataKeyFlag.PER_SAVE);
+ *
+ *   // 读写
+ *   KILLS.set(10);
+ *   int n = KILLS.getInt();
+ * </pre>
+ *
+ * <p>旧接口（裸字符串键）同样要求先注册，未注册的键读写都会被拒绝并记录日志。
+ * {@code getString(String)} 这类方法仅用于读存档里已有的原始值（例如存档迁移、
+ * 调试显示），业务代码应当使用 {@link DataKey} 句柄。
+ *
+ * <p>使用示例：
+ * <pre>
  * // 新游戏时清空变量
  * SaveDataManager.getInstance().clear();
  * </pre>
  */
 public class SaveDataManager {
     private static SaveDataManager instance;
-    
+
     // 存储所有存档变量
     private Map<String, String> saveVariables;
-    
+
     private SaveDataManager() {
         saveVariables = new HashMap<>();
     }
-    
+
     /**
-     * 获取单例实例
+     * 获取单例实例。
+     *
+     * <p>注意：仅仅取到实例不代表「正在玩一个存档」—— 判断有没有活跃存档请用
+     * {@link #hasActiveInstance()}，否则 {@link DataManager} 会把「框架启动时读一个
+     * 存档作用域的键」误判成「玩家正在游戏里」。
      */
     public static SaveDataManager getInstance() {
         if (instance == null) {
@@ -52,7 +59,24 @@ public class SaveDataManager {
         }
         return instance;
     }
-    
+
+    /**
+     * 当前是否存在活跃存档（已经加载过一个存档）。
+     *
+     * <p>由 {@code GameInstance} 在加载/新建存档时置为 true、退出时置回 false。
+     */
+    public static boolean hasActiveInstance() {
+        return instance != null && instance.active;
+    }
+
+    /** 标记存档已加载 / 已卸载。 */
+    public static void setActive(boolean active) {
+        getInstance().active = active;
+        Logger("DEBUG", "存档会话状态: " + (active ? "已加载" : "未加载"));
+    }
+
+    /** 是否有活跃存档。 */
+    private boolean active = false;
     /**
      * 清空所有存档变量（新游戏时调用）
      */
@@ -60,281 +84,239 @@ public class SaveDataManager {
         saveVariables.clear();
         Logger("DEBUG", "所有存档变量已清空");
     }
-    
+
     /**
      * 检查是否存在指定变量
      */
     public boolean contains(String key) {
-        return saveVariables.containsKey(key);
+        return key != null && saveVariables.containsKey(key.trim());
     }
-    
+
     /**
      * 删除指定变量
      */
     public void remove(String key) {
-        saveVariables.remove(key);
+        if (key != null) {
+            saveVariables.remove(key.trim());
+        }
     }
-    
+
     /**
      * 获取所有变量
      */
     public Map<String, String> getAllVariables() {
         return new HashMap<>(saveVariables);
     }
-    
-    // ==================== 字符串类型 ====================
-    
+
+    // ==================== 原始读写（键必须已注册） ====================
+
     /**
-     * 获取字符串变量
-     */
-    public String getString(String key) {
-        return saveVariables.get(key);
-    }
-    
-    /**
-     * 获取字符串变量（带默认值）
+     * 注册并读取一个字符串变量。
+     *
+     * <p>键未注册时返回 {@code null} 并告警 —— 这与
+     * {@link DataManager} 的规则一致。
      */
     public String getString(String key, String defaultValue) {
-        return saveVariables.getOrDefault(key, defaultValue);
+        DataKey<?> declared = requireRegistered(key, "读取");
+        if (declared == null) {
+            return defaultValue;
+        }
+        String raw = saveVariables.get(declared.qualified());
+        return raw == null ? defaultValue : String.valueOf(declared.parse(raw));
     }
-    
+
+    public String getString(String key) {
+        return getString(key, null);
+    }
+
     /**
-     * 设置字符串变量
+     * 写入一个字符串变量。键必须已注册，且值必须符合注册类型。
      */
     public void setString(String key, String value) {
-        if (value == null) {
-            saveVariables.remove(key);
-        } else {
-            saveVariables.put(key, value);
+        DataKey<?> declared = requireRegistered(key, "写入");
+        if (declared == null) {
+            return;
         }
+        writeRaw(declared, value);
     }
-    
-    // ==================== 布尔类型 ====================
-    
+
     /**
-     * 获取布尔变量
+     * 写入任意已注册键，类型由注册决定。
+     *
+     * <p>入参可以是<b>类型正确的对象</b>（{@code DataKey.set(7)}），也可以是
+     * <b>该值的字符串形式</b>（{@code setString("…:i", "7")}）—— 存储层本来就是字符串，
+     * 两种写法最终都归一化到注册类型。类型不符则拒绝并告警。
+     *
+     * <p>供 {@link DataKey} 与 {@link DataManager} 使用。
      */
-    public boolean getBoolean(String key) {
-        String value = saveVariables.get(key);
-        if (value == null) {
+    static boolean writeRaw(DataKey<?> declared, Object value) {
+        String k = declared.qualified();
+        if (DataKeyRegistry.isReadOnly(k)) {
+            Logger("WARNING", "键 '" + k
+                    + "' 是只读键，写入被拒绝（值锁定在默认值 " + declared.defaultValue() + "）");
             return false;
         }
-        return Boolean.parseBoolean(value);
+        if (value == null) {
+            getInstance().saveVariables.remove(k);
+            return true;
+        }
+
+        String text;
+        if (value instanceof String s) {
+            // 字符串入参：按注册类型校验可解析性，再归一化存储
+            if (!declared.canParse(s)) {
+                Logger("WARNING", "键 '" + k + "' 的值 '" + s + "' 无法解析为 "
+                        + declared.type() + "，写入被拒绝");
+                return false;
+            }
+            text = s;
+        } else if (declared.type().matches(value)) {
+            text = String.valueOf(value);
+        } else {
+            Logger("WARNING", "键 '" + k + "' 注册类型为 " + declared.type()
+                    + "，但收到的值 '" + value + "' (" + value.getClass().getSimpleName()
+                    + ") 不属于该类型，写入被拒绝");
+            return false;
+        }
+        getInstance().saveVariables.put(k, text);
+        return true;
     }
-    
-    /**
-     * 获取布尔变量（带默认值）
-     */
+
+    /** 键未注册时告警并返回 null。 */
+    private static DataKey<?> requireRegistered(String key, String action) {
+        if (key == null) {
+            return null;
+        }
+        DataKey<?> declared = DataKeyRegistry.lookup(key.trim());
+        if (declared == null) {
+            Logger("WARNING", "尝试" + action + "未注册的存档变量 '" + key
+                    + "' —— 已忽略。请先用 DataManager.define* 或 DataKey.of 声明它");
+        }
+        return declared;
+    }
+
+    // ==================== 布尔类型 ====================
+
+    public boolean getBoolean(String key) {
+        return parseBoolean(key, getString(key, null), false);
+    }
+
     public boolean getBoolean(String key, boolean defaultValue) {
-        String value = saveVariables.get(key);
-        if (value == null) {
-            return defaultValue;
-        }
-        return Boolean.parseBoolean(value);
+        return parseBoolean(key, getString(key, null), defaultValue);
     }
-    
-    /**
-     * 设置布尔变量
-     */
+
     public void setBoolean(String key, boolean value) {
-        saveVariables.put(key, String.valueOf(value));
+        setString(key, String.valueOf(value));
     }
-    
+
     // ==================== 整数类型 ====================
-    
-    /**
-     * 获取整数变量
-     */
+
     public int getInt(String key) {
-        String value = saveVariables.get(key);
-        if (value == null) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析整数存档变量: " + key + " = " + value);
-            return 0;
-        }
+        return getInt(key, 0);
     }
-    
-    /**
-     * 获取整数变量（带默认值）
-     */
+
     public int getInt(String key, int defaultValue) {
-        String value = saveVariables.get(key);
-        if (value == null) {
+        String raw = getRaw(key);
+        if (raw == null) {
             return defaultValue;
         }
         try {
-            return Integer.parseInt(value);
+            return Integer.parseInt(raw.trim());
         } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析整数存档变量: " + key + " = " + value + "，使用默认值: " + defaultValue);
+            Logger("WARNING", "无法解析整数存档变量: " + key + " = " + raw + "，使用默认值: " + defaultValue);
             return defaultValue;
         }
     }
-    
-    /**
-     * 设置整数变量
-     */
+
     public void setInt(String key, int value) {
-        saveVariables.put(key, String.valueOf(value));
+        setString(key, String.valueOf(value));
     }
-    
-    /**
-     * 增加整数变量
-     */
+
     public void incrementInt(String key) {
-        int currentValue = getInt(key, 0);
-        setInt(key, currentValue + 1);
+        incrementInt(key, 1);
     }
-    
-    /**
-     * 增加整数变量（指定增量）
-     */
+
+    /** 增加整数变量（指定增量） */
     public void incrementInt(String key, int delta) {
-        int currentValue = getInt(key, 0);
-        setInt(key, currentValue + delta);
+        setInt(key, getInt(key, 0) + delta);
     }
-    
+
     // ==================== 长整数类型 ====================
-    
-    /**
-     * 获取长整数变量
-     */
+
     public long getLong(String key) {
-        String value = saveVariables.get(key);
-        if (value == null) {
-            return 0L;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析长整数存档变量: " + key + " = " + value);
-            return 0L;
-        }
+        return getLong(key, 0L);
     }
-    
-    /**
-     * 获取长整数变量（带默认值）
-     */
+
     public long getLong(String key, long defaultValue) {
-        String value = saveVariables.get(key);
-        if (value == null) {
+        String raw = getRaw(key);
+        if (raw == null) {
             return defaultValue;
         }
         try {
-            return Long.parseLong(value);
+            return Long.parseLong(raw.trim());
         } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析长整数存档变量: " + key + " = " + value + "，使用默认值: " + defaultValue);
+            Logger("WARNING", "无法解析长整数存档变量: " + key + " = " + raw + "，使用默认值: " + defaultValue);
             return defaultValue;
         }
     }
-    
-    /**
-     * 设置长整数变量
-     */
+
     public void setLong(String key, long value) {
-        saveVariables.put(key, String.valueOf(value));
+        setString(key, String.valueOf(value));
     }
-    
-    /**
-     * 增加长整数变量
-     */
+
     public void incrementLong(String key) {
-        long currentValue = getLong(key, 0);
-        setLong(key, currentValue + 1);
+        incrementLong(key, 1L);
     }
-    
-    /**
-     * 增加长整数变量（指定增量）
-     */
+
     public void incrementLong(String key, long delta) {
-        long currentValue = getLong(key, 0);
-        setLong(key, currentValue + delta);
+        setLong(key, getLong(key, 0L) + delta);
     }
-    
+
     // ==================== 浮点数类型 ====================
-    
-    /**
-     * 获取双精度浮点数变量
-     */
+
     public double getDouble(String key) {
-        String value = saveVariables.get(key);
-        if (value == null) {
-            return 0.0;
-        }
-        try {
-            return Double.parseDouble(value);
-        } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析浮点数存档变量: " + key + " = " + value);
-            return 0.0;
-        }
+        return getDouble(key, 0.0);
     }
-    
-    /**
-     * 获取双精度浮点数变量（带默认值）
-     */
+
     public double getDouble(String key, double defaultValue) {
-        String value = saveVariables.get(key);
-        if (value == null) {
+        String raw = getRaw(key);
+        if (raw == null) {
             return defaultValue;
         }
         try {
-            return Double.parseDouble(value);
+            return Double.parseDouble(raw.trim());
         } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析浮点数存档变量: " + key + " = " + value + "，使用默认值: " + defaultValue);
+            Logger("WARNING", "无法解析浮点数存档变量: " + key + " = " + raw + "，使用默认值: " + defaultValue);
             return defaultValue;
         }
     }
-    
-    /**
-     * 设置双精度浮点数变量
-     */
+
     public void setDouble(String key, double value) {
-        saveVariables.put(key, String.valueOf(value));
+        setString(key, String.valueOf(value));
     }
-    
-    /**
-     * 获取单精度浮点数变量
-     */
+
     public float getFloat(String key) {
-        String value = saveVariables.get(key);
-        if (value == null) {
-            return 0.0f;
-        }
-        try {
-            return Float.parseFloat(value);
-        } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析浮点数存档变量: " + key + " = " + value);
-            return 0.0f;
-        }
+        return getFloat(key, 0.0f);
     }
-    
-    /**
-     * 获取单精度浮点数变量（带默认值）
-     */
+
     public float getFloat(String key, float defaultValue) {
-        String value = saveVariables.get(key);
-        if (value == null) {
+        String raw = getRaw(key);
+        if (raw == null) {
             return defaultValue;
         }
         try {
-            return Float.parseFloat(value);
+            return Float.parseFloat(raw.trim());
         } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析浮点数存档变量: " + key + " = " + value + "，使用默认值: " + defaultValue);
+            Logger("WARNING", "无法解析浮点数存档变量: " + key + " = " + raw + "，使用默认值: " + defaultValue);
             return defaultValue;
         }
     }
-    
-    /**
-     * 设置单精度浮点数变量
-     */
+
     public void setFloat(String key, float value) {
-        saveVariables.put(key, String.valueOf(value));
+        setString(key, String.valueOf(value));
     }
-    
-    // ==================== 命名空间键（推荐用法） ====================
+
+    // ==================== 命名空间键 ====================
 
     /**
      * 带命名空间的存档变量键。
@@ -347,8 +329,7 @@ public class SaveDataManager {
      *
      * <p>限定规则（{@link #qualified()}）：
      * <ul>
-     *   <li>特殊键（{@link SpecialKeys} 中已注册，如 {@code starveil:inertia}）
-     *       直接使用自身，<b>不加</b>章节前缀；</li>
+     *   <li>已经是完整键名（含 {@code :}）的直接使用；</li>
      *   <li>其余键自动补上命名空间前缀，例如 {@code namespace="chapter3"} +
      *       {@code name="123"} → {@code chapter3:123}。</li>
      * </ul>
@@ -368,17 +349,14 @@ public class SaveDataManager {
 
         /** 实际写入存档的键名。 */
         public String qualified() {
-            if (SpecialKeys.isSpecial(name)) {
-                return name;
-            }
-            if (name.indexOf(SpecialKeys.SEPARATOR) >= 0) {
+            if (name.indexOf(DataKeyRegistry.SEPARATOR) >= 0) {
                 return name;
             }
             if (namespace == null) {
                 throw new IllegalArgumentException(
-                        "非特殊键必须提供命名空间（例如 chapter3 + 123），收到: " + name);
+                        "非完整键名必须提供命名空间（例如 chapter3 + 123），收到: " + name);
             }
-            return namespace + SpecialKeys.SEPARATOR + name;
+            return namespace + DataKeyRegistry.SEPARATOR + name;
         }
     }
 
@@ -386,18 +364,25 @@ public class SaveDataManager {
     private final Set<String> registeredKeys = new HashSet<>();
 
     /**
-     * 提前登记一个存档变量键。使用前必须先登记。
+     * 提前登记一个存档变量键。
      *
-     * <p>强制登记是为了把「拼错键名」从「静默丢数据」变成「启动即报错」——
-     * 存档变量一旦写错名字，玩家只会看到进度莫名消失。
+     * <p>登记会转交给 {@link DataKeyRegistry} —— 只有注册表里的键才能读写，
+     * 因此这里登记过的键必须同时给出类型与默认值（见
+     * {@code DataManager.define*(namespace, name, defaultValue, PER_SAVE)}）。
      */
     public void registerKey(SaveKey key) {
-        String q = key.qualified();
-        if (!registeredKeys.add(q)) {
-            Logger("WARNING", "存档变量重复注册: " + q);
+        DataKey<?> declared = DataKeyRegistry.lookup(key.qualified());
+        if (declared == null) {
+            Logger("WARNING", "存档变量 '" + key.qualified()
+                    + "' 未在键注册表中声明 —— 请用 DataManager.define*(..., PER_SAVE) 注册，"
+                    + "仅调用 registerKey 不再足够");
             return;
         }
-        Logger("DEBUG", "已注册存档变量: " + q);
+        if (!registeredKeys.add(declared.qualified())) {
+            Logger("WARNING", "存档变量重复注册: " + declared.qualified());
+            return;
+        }
+        Logger("DEBUG", "已登记存档变量: " + declared.qualified());
     }
 
     public void registerKey(String namespace, String name) {
@@ -405,22 +390,16 @@ public class SaveDataManager {
     }
 
     public boolean isKeyRegistered(SaveKey key) {
-        String q = key.qualified();
-        return SpecialKeys.isSpecial(q) || registeredKeys.contains(q);
+        return DataKeyRegistry.isRegistered(key.qualified());
     }
 
-    /** 解析并校验：未提前注册直接抛异常。 */
-    private String resolve(SaveKey key) {
-        String q = key.qualified();
-        if (SpecialKeys.isSpecial(q)) {
-            return q;
+    /** 读取存档里的原始字符串（未注册时告警并返回 null）。 */
+    private String getRaw(String key) {
+        DataKey<?> declared = requireRegistered(key, "读取");
+        if (declared == null) {
+            return null;
         }
-        if (!registeredKeys.contains(q)) {
-            throw new IllegalArgumentException(
-                    "存档变量未提前注册: " + q + "（请先调用 registerKey(\"" 
-                            + key.namespace() + "\", \"" + key.name() + "\")）");
-        }
-        return q;
+        return saveVariables.get(declared.qualified());
     }
 
     /** 清空键登记（仅测试与重载模式定义时使用）。 */
@@ -432,124 +411,20 @@ public class SaveDataManager {
         return new HashSet<>(registeredKeys);
     }
 
-    // ---- 字符串 ----
-
-    public String getScopedString(SaveKey key, String defaultValue) {
-        return saveVariables.getOrDefault(resolve(key), defaultValue);
-    }
-
-    public void setScopedString(SaveKey key, String value) {
-        String q = resolve(key);
-        if (value == null) {
-            saveVariables.remove(q);
-        } else {
-            saveVariables.put(q, value);
-        }
-    }
-
-    // ---- 布尔 ----
-
-    public boolean getScopedBoolean(SaveKey key, boolean defaultValue) {
-        String value = saveVariables.get(resolve(key));
-        return value == null ? defaultValue : Boolean.parseBoolean(value);
-    }
-
-    public void setScopedBoolean(SaveKey key, boolean value) {
-        saveVariables.put(resolve(key), String.valueOf(value));
-    }
-
-    // ---- 整数 ----
-
-    public int getScopedInt(SaveKey key, int defaultValue) {
-        String value = saveVariables.get(resolve(key));
-        if (value == null) return defaultValue;
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析整数存档变量: " + resolve(key) + " = " + value);
-            return defaultValue;
-        }
-    }
-
-    public void setScopedInt(SaveKey key, int value) {
-        saveVariables.put(resolve(key), String.valueOf(value));
-    }
-
-    public void incrementScopedInt(SaveKey key, int delta) {
-        setScopedInt(key, getScopedInt(key, 0) + delta);
-    }
-
-    // ---- 长整数 ----
-
-    public long getScopedLong(SaveKey key, long defaultValue) {
-        String value = saveVariables.get(resolve(key));
-        if (value == null) return defaultValue;
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析长整数存档变量: " + resolve(key) + " = " + value);
-            return defaultValue;
-        }
-    }
-
-    public void setScopedLong(SaveKey key, long value) {
-        saveVariables.put(resolve(key), String.valueOf(value));
-    }
-
-    // ---- 浮点数 ----
-
-    public double getScopedDouble(SaveKey key, double defaultValue) {
-        String value = saveVariables.get(resolve(key));
-        if (value == null) return defaultValue;
-        try {
-            return Double.parseDouble(value);
-        } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析浮点存档变量: " + resolve(key) + " = " + value);
-            return defaultValue;
-        }
-    }
-
-    public void setScopedDouble(SaveKey key, double value) {
-        saveVariables.put(resolve(key), String.valueOf(value));
-    }
-
-    public float getScopedFloat(SaveKey key, float defaultValue) {
-        String value = saveVariables.get(resolve(key));
-        if (value == null) return defaultValue;
-        try {
-            return Float.parseFloat(value);
-        } catch (NumberFormatException e) {
-            Logger("WARNING", "无法解析浮点存档变量: " + resolve(key) + " = " + value);
-            return defaultValue;
-        }
-    }
-
-    public void setScopedFloat(SaveKey key, float value) {
-        saveVariables.put(resolve(key), String.valueOf(value));
-    }
-
-    // ---- 存在性 / 删除 ----
-
-    public boolean containsScoped(SaveKey key) {
-        return saveVariables.containsKey(resolve(key));
-    }
-
-    public void removeScoped(SaveKey key) {
-        saveVariables.remove(resolve(key));
-    }
-
     // ==================== 导出/导入（用于 SaveManager） ====================
-    
+
     /**
      * 导出所有变量（保存到存档时调用）
+     *
      * @return 包含所有变量的 Map
      */
     public Map<String, String> exportAll() {
         return new HashMap<>(saveVariables);
     }
-    
+
     /**
      * 导入变量（加载存档时调用）
+     *
      * @param variables 要导入的变量 Map
      */
     public void importAll(Map<String, String> variables) {
@@ -558,16 +433,16 @@ public class SaveDataManager {
             Logger("DEBUG", "已导入 " + saveVariables.size() + " 个存档变量");
         }
     }
-    
+
     // ==================== 调试信息 ====================
-    
+
     /**
      * 获取变量数量
      */
     public int getVariableCount() {
         return saveVariables.size();
     }
-    
+
     /**
      * 打印所有变量（用于调试）
      */
@@ -577,5 +452,29 @@ public class SaveDataManager {
             Logger("DEBUG", "  " + entry.getKey() + " = " + entry.getValue());
         }
         Logger("DEBUG", "=== 存档变量列表结束 ===");
+    }
+
+    // ==================== 内部解析 ====================
+
+    private static boolean parseBoolean(String key, String value, boolean fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        String t = value.trim();
+        if ("true".equalsIgnoreCase(t)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(t)) {
+            return false;
+        }
+        Logger("WARNING", "键 '" + key + "' 的值不是合法布尔值: '" + value + "'，使用默认值: " + fallback);
+        return fallback;
+    }
+
+    /** 仅测试使用。 */
+    void resetForTest() {
+        saveVariables.clear();
+        registeredKeys.clear();
+        active = false;
     }
 }

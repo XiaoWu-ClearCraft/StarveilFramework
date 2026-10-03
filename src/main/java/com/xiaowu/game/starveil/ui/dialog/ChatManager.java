@@ -246,7 +246,8 @@ public class ChatManager {
             if (currentDialogFuture == future) currentDialogFuture = null;
         });
 
-        String userName = DataManager.getString("starveil:player_name", null);
+        String userName = com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .PLAYER_NAME.get();
         if (message != null) {
             message = message.replace("{NAME}", userName == null ? "" : userName);
         }

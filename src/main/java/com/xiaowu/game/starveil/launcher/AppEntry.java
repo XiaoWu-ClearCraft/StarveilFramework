@@ -341,7 +341,7 @@ public class AppEntry {
             return;
         }
 
-        if (com.xiaowu.game.starveil.infrastructure.persistence.DataManager.getBoolean("starveil:gpu_check_ignored", false)) {
+        if (com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys.GPU_CHECK_IGNORED.get()) {
             return;
         }
 
@@ -365,7 +365,7 @@ public class AppEntry {
             options[0]
         );
         if (choice == javax.swing.JOptionPane.NO_OPTION) {
-            com.xiaowu.game.starveil.infrastructure.persistence.DataManager.setBoolean("starveil:gpu_check_ignored", true);
+            com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys.GPU_CHECK_IGNORED.set(true);
         }
     }
 

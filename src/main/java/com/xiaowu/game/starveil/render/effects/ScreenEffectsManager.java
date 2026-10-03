@@ -138,7 +138,8 @@ public class ScreenEffectsManager {
 
     /** 配置是否允许创建遮罩层（默认允许）。 */
     public static boolean isEnabledByConfig() {
-        return DataManager.getBoolean(GameConstants.SETTING_OVERLAY_ENABLED, true);
+        return com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .OVERLAY_ENABLED.get();
     }
 
     /**

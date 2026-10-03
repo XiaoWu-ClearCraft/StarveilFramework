@@ -129,8 +129,8 @@ public class AnimationController {
 
     private int getTextSpeed() {
         try {
-            String val = com.xiaowu.game.starveil.infrastructure.persistence.DataManager.get("starveil:setting.text_speed", "50");
-            return Integer.parseInt(val);
+            return com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                    .TEXT_SPEED.getInt();
         } catch (Exception e) {
             return 50;
         }

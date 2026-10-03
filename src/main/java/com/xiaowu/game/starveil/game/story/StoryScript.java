@@ -489,13 +489,15 @@ public final class StoryScript {
 
     /** 玩家当前名字。 */
     public String playerName() {
-        return DataManager.getString("starveil:player_name", "");
+        return com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .PLAYER_NAME.get();
     }
 
     /** 设置玩家名字（同时写入全局配置）。 */
     public StoryScript setPlayerName(String name) {
         step("setPlayerName", name);
-        DataManager.set("starveil:player_name", name);
+        com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .PLAYER_NAME.set(name);
         return this;
     }
 

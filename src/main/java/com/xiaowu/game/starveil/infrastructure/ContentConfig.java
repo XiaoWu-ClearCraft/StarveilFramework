@@ -237,6 +237,35 @@ public final class ContentConfig {
         return !LANGUAGES.isEmpty();
     }
 
+    // ==================== 数据文件密钥 ====================
+
+    /**
+     * 指定数据文件的加密密钥与 IV。
+     *
+     * <p>不指定时用框架默认值（见 {@code FileCrypto.DEFAULT_KEY}）。
+     * 指定自己的密钥后，本游戏的数据文件与其它基于本框架的游戏互不可读 ——
+     * 否则任何人拿到框架源码就能解开所有游戏的存档。
+     *
+     * <p><b>两者都必须是 16 字节</b>（AES-128，UTF-8 编码后计）。长度不对会记录
+     * ERROR 并保持默认值，不会中断启动。
+     *
+     * <pre>
+     *   // 在 content.init.init() 里
+     *   ContentConfig.setDataCryptoKey("MyGame_SecretKey", null);   // 只换密钥，IV 用默认
+     *   ContentConfig.setDataCryptoKey("MyGame_SecretKey", "MyGame_InitVec16");
+     * </pre>
+     *
+     * <p><b>换密钥会作废已有存档</b>：旧文件解不开，需要删掉重来。
+     *
+     * @param key 16 字节密钥；{@code null} 或空串表示不修改
+     * @param iv  16 字节 IV；{@code null} 或空串表示不修改
+     * @return 是否应用成功
+     */
+    public static boolean setDataCryptoKey(String key, String iv) {
+        return com.xiaowu.game.starveil.infrastructure.persistence.FileCrypto
+                .configure(key, iv);
+    }
+
     // ==================== 内部 ====================
 
     /** 记录新值，并登记「默认路径 → 新路径」的重定向。空路径 = 清空（视为未指定）。 */

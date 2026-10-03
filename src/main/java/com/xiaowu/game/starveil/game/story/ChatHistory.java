@@ -131,7 +131,8 @@ public final class ChatHistory {
      * 宁可多清一次，也不要因为读不到配置而让记录无限堆积。
      */
     public static boolean readKeepAcrossChapters() {
-        return DataManager.getBoolean(GameConstants.CHAT_HISTORY_KEEP_CHAPTERS_KEY, false);
+        return com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .CHAT_HISTORY_KEEP_CHAPTERS.get();
     }
 
     /** 仅测试使用：重置单例内部状态。 */

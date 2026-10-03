@@ -24,14 +24,16 @@ public final class MagicSystem {
      * 法阵（魔力）系统是否启用。
      */
     public static boolean isEnabled() {
-        return DataManager.getBoolean(GameConstants.MAGIC_CIRCLE_ENABLED_KEY, false);
+        return com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .MAGIC_CIRCLE_ENABLED.get();
     }
 
     /**
      * 设置法阵（魔力）系统开关，并即时刷新 UI。
      */
     public static void setEnabled(boolean enabled) {
-        DataManager.setBoolean(GameConstants.MAGIC_CIRCLE_ENABLED_KEY, enabled);
+        com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
+                .MAGIC_CIRCLE_ENABLED.set(enabled);
         GameUI.getInstance().refreshMagicVisibility();
     }
 }

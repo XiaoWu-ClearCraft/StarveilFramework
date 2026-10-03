@@ -170,10 +170,38 @@ public final class init {
         // 可选语言（不提供则设置界面不显示语言切换）
         ContentConfig.addLanguage("zh_cn", "简体中文");
 
+        // 数据文件加密密钥（不提供则用框架默认值；换密钥会作废旧存档）
+        ContentConfig.setDataCryptoKey("MyGame_SecretKey", null);
+
         // 起始章节（不提供则从第 1 章开始）
         com.xiaowu.game.starveil.game.story.ChapterDirector.setStartChapter(1);
     }
 }
+```
+
+内容自己新增的数据键也在同一个入口声明（详见 [数据键](data-keys.md)）：
+
+```java
+import com.xiaowu.game.starveil.infrastructure.persistence.DataKey;
+import com.xiaowu.game.starveil.infrastructure.persistence.DataKeyFlag;
+import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
+
+/** 本作的数据键，声明一次，全工程只用句柄读写。 */
+public final class MyGameKeys {
+    /** 主角好感度：随存档，默认 0。 */
+    public static final DataKey<Integer> AFFECTION =
+            DataManager.defineInt("mygame", "affection", 0, DataKeyFlag.PER_SAVE);
+
+    /** 是否已看过开场：全局，默认 false。 */
+    public static final DataKey<Boolean> SEEN_PROLOGUE =
+            DataManager.defineBool("mygame", "seen_prologue", false);
+}
+```
+
+也可以重定义框架内置键的出厂默认值（例如改掉默认文字速度）：
+
+```java
+DataManager.defineInt("starveil", "setting.text_speed", 30);
 ```
 
 框架对「内容没提供」的一律**静默降级**，而不是报错：
@@ -203,4 +231,4 @@ com.xiaowu.game.starveil.content.chapter<N>.Chapter<N>
 ## 相关文档
 
 - [剧情开发指南](story-guide.md) —— 内容怎么写：章节、剧情脚本、动画键
-- [DataManager 特殊键](special-keys.md) —— 全局配置里那些可被存档覆盖的键
+- [数据键](data-keys.md) —— 键怎么注册，以及每个内置键的作用

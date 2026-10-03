@@ -14,10 +14,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>覆盖层的语义：<b>只改内存、不落盘</b>，读取时优先级最高。
  *
+ * <p>覆盖层是<b>唯一允许使用未注册键</b>的入口 —— 调试窗口需要能覆盖任意键。
+ * 因此这里刻意用未注册的键名，顺带把这条规则钉住。
+ *
  * <p>注意这里<b>不</b>测试「代码写入会顶掉覆盖」那条路径 ——
- * {@code DataManager.set*} 会真的调用 {@code saveData()} 写磁盘，
+ * {@code DataKey.set()} 会真的调用 {@code saveData()} 写磁盘，
  * 在单测里跑等于去改写开发者/玩家的真实配置文件。
- * 该规则由 {@code putAndSave()} 统一实现（所有 setter 都走它）。
+ * 该规则由 {@code writeRaw()} 统一实现（所有 setter 都走它）。
  */
 class DataManagerMemoryOverrideTest {
 
@@ -35,10 +38,11 @@ class DataManagerMemoryOverrideTest {
 
     @Test
     void overrideIsReadBack() {
-        DataManager.setMemoryOverride("some.key", "42");
-        assertTrue(DataManager.hasMemoryOverride("some.key"));
-        assertEquals("42", DataManager.getString("some.key"),
+        DataManager.setMemoryOverride("starveil:cant_exit", "true");
+        assertTrue(DataManager.hasMemoryOverride("starveil:cant_exit"));
+        assertEquals("true", DataManager.getString("starveil:cant_exit"),
                 "覆盖值必须能被读出来，否则调试改值毫无意义");
+        assertTrue(DataManager.isExitBlocked(), "内置特殊键同样能被覆盖");
     }
 
     @Test
@@ -51,58 +55,54 @@ class DataManagerMemoryOverrideTest {
 
     @Test
     void typedAccessorsSeeTheOverride() {
-        DataManager.setMemoryOverride("num", "7");
-        assertEquals(7, DataManager.getInt("num", 0));
+        DataManager.setMemoryOverride("starveil:setting.text_speed", "77");
+        assertEquals(77, DataManager.getInt("starveil:setting.text_speed", 0));
 
-        DataManager.setMemoryOverride("flag", "true");
-        assertTrue(DataManager.getBoolean("flag", false));
+        DataManager.setMemoryOverride("starveil:inertia", "true");
         assertTrue(DataManager.isInertiaEnabled(),
                 "内置特殊键同样能被覆盖（惯性开关）");
 
-        DataManager.setMemoryOverride("d", "1.5");
-        assertEquals(1.5, DataManager.getDouble("d", 0.0), 1e-9);
-        assertEquals(1.5f, DataManager.getFloat("d", 0f), 1e-6f);
-        assertEquals(7L, DataManager.getLong("num", 0L));
+        DataManager.setMemoryOverride("starveil:setting.bgm_volume", "0.25");
+        assertEquals(0.25, DataManager.getDouble("starveil:setting.bgm_volume", 0.0), 1e-9);
     }
 
     @Test
     void clearSingleOverride() {
-        DataManager.setMemoryOverride("a", "1");
-        DataManager.setMemoryOverride("b", "2");
+        DataManager.setMemoryOverride("starveil:cant_exit", "true");
+        DataManager.setMemoryOverride("starveil:inertia", "true");
 
-        DataManager.clearMemoryOverride("a");
+        DataManager.clearMemoryOverride("starveil:cant_exit");
 
-        assertFalse(DataManager.hasMemoryOverride("a"));
-        assertNull(DataManager.getString("a"), "清掉覆盖后应回到「文件里没有」的状态");
-        assertTrue(DataManager.hasMemoryOverride("b"), "不该误伤其它键");
-        assertEquals("2", DataManager.getString("b"));
+        assertFalse(DataManager.hasMemoryOverride("starveil:cant_exit"));
+        assertFalse(DataManager.isExitBlocked(), "清掉覆盖后回到默认值 false");
+        assertTrue(DataManager.hasMemoryOverride("starveil:inertia"), "不该误伤其它键");
     }
 
     @Test
     void clearAllOverrides() {
-        DataManager.setMemoryOverride("a", "1");
-        DataManager.setMemoryOverride("b", "2");
+        DataManager.setMemoryOverride("starveil:cant_exit", "true");
+        DataManager.setMemoryOverride("starveil:inertia", "false");
 
         DataManager.clearAllMemoryOverrides();
 
         assertTrue(DataManager.getMemoryOverrides().isEmpty());
-        assertFalse(DataManager.hasMemoryOverride("a"));
+        assertFalse(DataManager.hasMemoryOverride("starveil:cant_exit"));
     }
 
     @Test
     void overridesSnapshotIsACopy() {
-        DataManager.setMemoryOverride("a", "1");
-        DataManager.getMemoryOverrides().put("b", "2");
+        DataManager.setMemoryOverride("starveil:cant_exit", "true");
+        DataManager.getMemoryOverrides().put("starveil:inertia", "false");
 
-        assertFalse(DataManager.hasMemoryOverride("b"),
+        assertFalse(DataManager.hasMemoryOverride("starveil:inertia"),
                 "取到的必须是快照，外部改动不能影响内部状态");
     }
 
     @Test
     void keyIsTrimmed() {
-        DataManager.setMemoryOverride("  padded  ", "v");
-        assertTrue(DataManager.hasMemoryOverride("padded"));
-        assertEquals("v", DataManager.getString("padded"));
+        DataManager.setMemoryOverride("  starveil:inertia  ", "false");
+        assertTrue(DataManager.hasMemoryOverride("starveil:inertia"));
+        assertFalse(DataManager.isInertiaEnabled());
     }
 
     @Test
@@ -116,7 +116,29 @@ class DataManagerMemoryOverrideTest {
     void noLegacyKeyMigration() {
         // 框架测试阶段不做历史键迁移：裸名不再被当作任何键的别名
         DataManager.setMemoryOverride("starveil:cant_exit", "true");
-        assertNull(DataManager.getString("CantExit"),
+        assertFalse(DataManager.getBoolean("CantExit", false),
                 "老裸名不应再被映射到新键 —— 老配置直接删掉即可");
+    }
+
+    // ==================== 未注册键的规则 ====================
+
+    @Test
+    void unregisteredKeyReadsFallBackAndWritesAreRejected() {
+        assertNull(DataManager.getString("myplugin:never_declared"),
+                "未注册键读出来必须是「没有」");
+        assertEquals(42, DataManager.getInt("myplugin:never_declared", 42),
+                "未注册键读取回退到调用方给的默认值");
+
+        DataManager.setInt("myplugin:never_declared", 7);
+        assertFalse(DataManager.getAll().containsKey("myplugin:never_declared"),
+                "未注册键的写入必须被拒绝，不能悄悄写进配置");
+    }
+
+    @Test
+    void bareNameIsNotAValidKey() {
+        assertNull(DataManager.getString("CantExit"),
+                "裸名既未注册也不带命名空间，读出来是「没有」");
+        DataManager.setBoolean("CantExit", true);
+        assertFalse(DataManager.getAll().containsKey("CantExit"));
     }
 }

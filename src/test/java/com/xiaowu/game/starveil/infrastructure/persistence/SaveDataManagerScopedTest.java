@@ -13,8 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 带命名空间的存档变量测试。
  *
- * <p>核心规则：非特殊键自动补章节前缀（{@code chapter3 + 123 → chapter3:123}），
- * 特殊键保持自身（不加前缀），且所有键都必须提前登记。
+ * <p>核心规则：键必须注册；完整键名（{@code chapter3:123}）保持自身，
+ * 只给键名时必须补上命名空间；未注册的键读写都被拒绝。
  */
 class SaveDataManagerScopedTest {
 
@@ -24,8 +24,8 @@ class SaveDataManagerScopedTest {
     @AfterEach
     void reset() {
         mgr = SaveDataManager.getInstance();
-        mgr.clear();
-        mgr.clearRegisteredKeys();
+        mgr.resetForTest();
+        DataKeyRegistry.resetForTest();
     }
 
     // ==================== 键限定 ====================
@@ -37,14 +37,9 @@ class SaveDataManagerScopedTest {
     }
 
     @Test
-    void specialKeyKeepsItselfWithoutPrefix() {
-        assertEquals(GameConstants.INERTIA_KEY,
-                new SaveDataManager.SaveKey("chapter3", GameConstants.INERTIA_KEY).qualified(),
-                "特殊键不能被打上章节前缀");
-    }
-
-    @Test
     void alreadyQualifiedNameIsLeftAlone() {
+        assertEquals(GameConstants.INERTIA_KEY,
+                new SaveDataManager.SaveKey("chapter3", GameConstants.INERTIA_KEY).qualified());
         assertEquals("chapter3:123",
                 new SaveDataManager.SaveKey(null, "chapter3:123").qualified());
     }
@@ -63,130 +58,101 @@ class SaveDataManagerScopedTest {
         assertThrows(IllegalArgumentException.class, () -> new SaveDataManager.SaveKey("chapter3", "  "));
     }
 
-    // ==================== 强制预注册 ====================
+    // ==================== 强制注册 ====================
 
     @Test
-    void usingUnregisteredKeyThrows() {
-        SaveDataManager.SaveKey k = new SaveDataManager.SaveKey("chapter3", "123");
-
-        assertThrows(IllegalArgumentException.class, () -> mgr.setScopedInt(k, 5),
-                "未注册就用必须报错，而不是静默丢数据");
-        assertThrows(IllegalArgumentException.class, () -> mgr.getScopedInt(k, 0));
-        assertFalse(mgr.isKeyRegistered(k));
+    void usingUnregisteredKeyIsRejectedOnWrite() {
+        // 未注册时写入被拒绝且不落值；读取拿到调用方给的默认值
+        mgr.setInt("chapter3:123", 5);
+        assertFalse(mgr.contains("chapter3:123"));
+        assertEquals(0, mgr.getInt("chapter3:123", 0));
+        assertFalse(mgr.isKeyRegistered(new SaveDataManager.SaveKey("chapter3", "123")));
     }
 
     @Test
-    void registeredKeyIsUsable() {
-        SaveDataManager.SaveKey k = new SaveDataManager.SaveKey("chapter3", "123");
-        mgr.registerKey(k);
-        assertTrue(mgr.isKeyRegistered(k));
-
-        mgr.setScopedInt(k, 42);
-        assertEquals(42, mgr.getScopedInt(k, 0));
-        assertTrue(mgr.containsScoped(k));
-
-        // 真的写进了带前缀的键
-        assertEquals("42", mgr.getString("chapter3:123"));
-    }
-
-    @Test
-    void specialKeysNeedNoRegistration() {
-        SaveDataManager.SaveKey k =
-                new SaveDataManager.SaveKey("chapter3", GameConstants.INERTIA_KEY);
-        assertTrue(mgr.isKeyRegistered(k), "特殊键由 SpecialKeys 统一登记");
-
-        mgr.setScopedBoolean(k, true);
-        assertTrue(mgr.getScopedBoolean(k, false));
-        assertEquals("true", mgr.getString(GameConstants.INERTIA_KEY));
+    void frameworkKeyNeedsNoExtraRegistration() {
+        DataKey<Boolean> inertia = FrameworkDataKeys.INERTIA;
+        assertTrue(mgr.isKeyRegistered(
+                new SaveDataManager.SaveKey("chapter3", GameConstants.INERTIA_KEY)),
+                "框架内置键已在注册表里，无需再登记");
+        assertTrue(SpecialKeys.isSpecial(inertia.qualified()));
     }
 
     // ==================== 读写 ====================
 
     @Test
     void allTypesRoundTrip() {
-        SaveDataManager.SaveKey s = new SaveDataManager.SaveKey("chapter3", "s");
-        SaveDataManager.SaveKey i = new SaveDataManager.SaveKey("chapter3", "i");
-        SaveDataManager.SaveKey l = new SaveDataManager.SaveKey("chapter3", "l");
-        SaveDataManager.SaveKey d = new SaveDataManager.SaveKey("chapter3", "d");
-        SaveDataManager.SaveKey f = new SaveDataManager.SaveKey("chapter3", "f");
-        SaveDataManager.SaveKey b = new SaveDataManager.SaveKey("chapter3", "b");
-        for (SaveDataManager.SaveKey k : new SaveDataManager.SaveKey[]{s, i, l, d, f, b}) {
-            mgr.registerKey(k);
-        }
+        DataKey<String> s = DataKey.of("chapter3", "s", "", DataKeyFlag.PER_SAVE);
+        DataKey<Integer> i = DataKey.of("chapter3", "i", 0, DataKeyFlag.PER_SAVE);
+        DataKey<Long> l = DataKey.of("chapter3", "l", 0L, DataKeyFlag.PER_SAVE);
+        DataKey<Double> d = DataKey.of("chapter3", "d", 0.0, DataKeyFlag.PER_SAVE);
+        DataKey<Float> f = DataKey.of("chapter3", "f", 0f, DataKeyFlag.PER_SAVE);
+        DataKey<Boolean> b = DataKey.of("chapter3", "b", false, DataKeyFlag.PER_SAVE);
 
-        mgr.setScopedString(s, "hello");
-        mgr.setScopedInt(i, 7);
-        mgr.setScopedLong(l, 9_000_000_000L);
-        mgr.setScopedDouble(d, 1.5);
-        mgr.setScopedFloat(f, 2.5f);
-        mgr.setScopedBoolean(b, true);
+        SaveDataManager.setActive(true);
 
-        assertEquals("hello", mgr.getScopedString(s, ""));
-        assertEquals(7, mgr.getScopedInt(i, 0));
-        assertEquals(9_000_000_000L, mgr.getScopedLong(l, 0L));
-        assertEquals(1.5, mgr.getScopedDouble(d, 0.0));
-        assertEquals(2.5f, mgr.getScopedFloat(f, 0f));
-        assertTrue(mgr.getScopedBoolean(b, false));
+        s.set("hello");
+        i.set(7);
+        l.set(9_000_000_000L);
+        d.set(1.5);
+        f.set(2.5f);
+        b.set(true);
+
+        assertEquals("hello", s.get());
+        assertEquals(7, i.getInt());
+        assertEquals(9_000_000_000L, l.getLong());
+        assertEquals(1.5, d.getDouble());
+        assertEquals(2.5f, f.getFloat());
+        assertTrue(b.getBool());
     }
 
     @Test
     void missingKeyYieldsDefault() {
-        SaveDataManager.SaveKey k = new SaveDataManager.SaveKey("chapter3", "absent");
-        mgr.registerKey(k);
+        DataKey<Integer> k = DataKey.of("chapter3", "absent", 99, DataKeyFlag.PER_SAVE);
+        SaveDataManager.setActive(true);
 
-        assertEquals(99, mgr.getScopedInt(k, 99));
-        assertEquals("dv", mgr.getScopedString(k, "dv"));
-        assertFalse(mgr.containsScoped(k));
-    }
-
-    @Test
-    void incrementScopedIntStartsFromZero() {
-        SaveDataManager.SaveKey k = new SaveDataManager.SaveKey("chapter3", "kills");
-        mgr.registerKey(k);
-
-        mgr.incrementScopedInt(k, 1);
-        mgr.incrementScopedInt(k, 1);
-        mgr.incrementScopedInt(k, 3);
-        assertEquals(5, mgr.getScopedInt(k, 0));
+        assertEquals(99, k.getInt());
+        assertFalse(k.isSet());
     }
 
     @Test
     void namespacesAreIsolated() {
-        SaveDataManager.SaveKey c3 = new SaveDataManager.SaveKey("chapter3", "123");
-        SaveDataManager.SaveKey c4 = new SaveDataManager.SaveKey("chapter4", "123");
-        mgr.registerKey(c3);
-        mgr.registerKey(c4);
+        DataKey<Integer> c3 = DataKey.of("chapter3", "123", 0, DataKeyFlag.PER_SAVE);
+        DataKey<Integer> c4 = DataKey.of("chapter4", "123", 0, DataKeyFlag.PER_SAVE);
+        SaveDataManager.setActive(true);
 
-        mgr.setScopedInt(c3, 1);
-        mgr.setScopedInt(c4, 2);
+        c3.set(1);
+        c4.set(2);
 
-        assertEquals(1, mgr.getScopedInt(c3, 0));
-        assertEquals(2, mgr.getScopedInt(c4, 0),
-                "同名变量在不同章节下必须互不影响");
+        assertEquals(1, c3.getInt());
+        assertEquals(2, c4.getInt(), "同名变量在不同命名空间下必须互不影响");
     }
 
     @Test
-    void removeScopedDeletesValue() {
-        SaveDataManager.SaveKey k = new SaveDataManager.SaveKey("chapter3", "123");
-        mgr.registerKey(k);
-        mgr.setScopedInt(k, 1);
-        mgr.removeScoped(k);
-        assertFalse(mgr.containsScoped(k));
+    void removeDeletesValue() {
+        DataKey<Integer> k = DataKey.of("chapter3", "123", 0, DataKeyFlag.PER_SAVE);
+        SaveDataManager.setActive(true);
+        k.set(1);
+        assertTrue(k.isSet());
+
+        k.remove();
+        assertFalse(k.isSet());
+        assertEquals(0, k.getInt());
     }
 
     // ==================== 与清档的关系 ====================
 
     @Test
     void clearWipesValuesButKeepsRegistration() {
-        SaveDataManager.SaveKey k = new SaveDataManager.SaveKey("chapter3", "123");
-        mgr.registerKey(k);
-        mgr.setScopedInt(k, 1);
+        DataKey<Integer> k = DataKey.of("chapter3", "123", 0, DataKeyFlag.PER_SAVE);
+        SaveDataManager.setActive(true);
+        k.set(1);
 
         mgr.clear();
 
-        assertFalse(mgr.containsScoped(k), "新游戏要清掉变量值");
-        assertTrue(mgr.isKeyRegistered(k),
-                "但键登记是模式而非数据，清掉会导致之后所有访问都抛异常");
-        assertEquals(0, mgr.getScopedInt(k, 0));
+        assertFalse(k.isSet(), "新游戏要清掉变量值");
+        assertTrue(DataKeyRegistry.isRegistered(k.qualified()),
+                "但键注册是模式而非数据，清掉会导致之后所有访问都失败");
+        assertEquals(0, k.getInt());
     }
 }

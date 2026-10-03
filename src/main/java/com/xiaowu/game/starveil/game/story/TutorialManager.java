@@ -405,7 +405,8 @@ public class TutorialManager {
         if (questManager.hasActiveQuest()) {
             questManager.setQuestProgress(100);
         }
-        DataManager.setBoolean(GameConstants.TUTORIAL_COMPLETED_KEY, true);
+        // 走 DataManager 的路由方法：进度记在存档还是全局，由 starveil:tutorial_persist 决定
+        DataManager.setTutorialCompleted(true);
         // 剧情脚本在 awaitTutorial() 上等待，这里解锁后它才能继续
         EventCallbackManager.getInstance().triggerTutorialCompleted();
         releaseStoryLayer();
