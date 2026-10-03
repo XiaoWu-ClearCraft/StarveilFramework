@@ -1,0 +1,276 @@
+package com.xiaowu.game.starveil.infrastructure;
+
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
+
+/**
+ * 内容配置 —— 由游戏内容在 {@code com.xiaowu.game.starveil.content.init.init}
+ * 里设定，用来替换框架自带的默认外观资源。
+ *
+ * <p><b>为什么需要这一层</b>：框架代码里到处写着
+ * {@code "starveil:fonts/xiaolai-sc-regular.ttf"} 这种路径（20 多处）。
+ * 那些路径属于「框架自带的默认值」，不该成为内容的硬性约束 ——
+ * 换一套字体、换一张主菜单背景，不应该去改框架源码。
+ *
+ * <p><b>实现方式</b>：这里的 setter 除了记录新值，还会往
+ * {@link #redirect} 表里登记一条「默认路径 → 新路径」的映射。
+ * {@link ResourceResolver} 是所有资源读取的唯一入口，它会在解析前查这张表。
+ * 于是框架里那几十处硬编码路径<b>一行都不用改</b>，内容侧换资源就会全局生效。
+ *
+ * <p>用法（在 {@code content.init.init()} 里）：
+ * <pre>
+ *   ContentConfig.setBodyFont("starveil:fonts/my-body.ttf");
+ *   ContentConfig.setMenuBackground("starveil:textures/backgrounds/my-menu.png");
+ *   ContentConfig.setPrimaryColor("#7FD4FF");
+ * </pre>
+ *
+ * <p>不设置时一切保持框架默认，因此「不装内容」也能跑起来（虽然会被
+ * {@code GameContentInit.requireContent()} 拦下，见那里的说明）。
+ */
+public final class ContentConfig {
+
+    // ==================== 框架默认值 ====================
+
+    public static final String DEFAULT_BODY_FONT = "starveil:fonts/xiaolai-sc-regular.ttf";
+    public static final String DEFAULT_TITLE_FONT = "starveil:fonts/zhengjing.ttf";
+    public static final String DEFAULT_DECOR_FONT = "starveil:fonts/handwriting.ttf";
+    public static final String DEFAULT_APP_ICON = "starveil:textures/icons/app-icon.png";    public static final String DEFAULT_MENU_BACKGROUND = "starveil:textures/backgrounds/main-menu.png";
+    public static final String DEFAULT_MENU_MUSIC = "starveil:sounds/music/dream.mp3";
+
+    // 主题色默认值：直接引用 GameConstants，保持单一事实源。
+    // GameConstants 只依赖 java.io/nio，因此 infrastructure → config 不构成包循环。
+    public static final String DEFAULT_PRIMARY_COLOR =
+            com.xiaowu.game.starveil.config.GameConstants.PINK_COLOR_HEX;
+    public static final String DEFAULT_SECONDARY_COLOR =
+            com.xiaowu.game.starveil.config.GameConstants.DEEP_PINK_COLOR_HEX;
+    public static final String DEFAULT_TERTIARY_COLOR =
+            com.xiaowu.game.starveil.config.GameConstants.LIGHT_PINK_COLOR_HEX;
+
+    private ContentConfig() {
+    }
+
+    // ==================== 当前值 ====================
+
+    /*
+     * 框架【不提供】任何默认外观资源。
+     *
+     * 字体、菜单背景、菜单音乐、窗口图标全部为 null，含义是「内容没有指定」——
+     * 此时框架应当什么都不做：字体回退系统字体、背景纯黑、不播音乐、用系统默认图标。
+     * 如果这里给个框架自带的默认路径，框架就会去加载一个「本来就不该由框架提供」的文件，
+     * 表现就是无内容启动时满屏「找不到资源」的报错。
+     */
+    private static volatile String bodyFont = null;
+    private static volatile String titleFont = null;
+    private static volatile String decorFont = null;
+    private static volatile String appIcon = null;
+    private static volatile String menuBackground = null;
+    private static volatile String menuMusic = null;
+
+    private static volatile String primaryColor = DEFAULT_PRIMARY_COLOR;
+    private static volatile String secondaryColor = DEFAULT_SECONDARY_COLOR;
+    private static volatile String tertiaryColor = DEFAULT_TERTIARY_COLOR;
+
+    /** 默认路径 → 内容指定的路径。 */
+    private static final Map<String, String> REDIRECTS = new ConcurrentHashMap<>();
+
+    // ==================== 字体 ====================
+
+    /** 正文字体（界面里绝大多数文字）。 */
+    public static void setBodyFont(String path) {
+        bodyFont = assign(path, DEFAULT_BODY_FONT, "正文字体");
+    }
+
+    /** 标题字体。 */
+    public static void setTitleFont(String path) {
+        titleFont = assign(path, DEFAULT_TITLE_FONT, "标题字体");
+    }
+
+    /** 装饰 / 手写字体。 */
+    public static void setDecorFont(String path) {
+        decorFont = assign(path, DEFAULT_DECOR_FONT, "装饰字体");
+    }
+
+    public static String bodyFont() {
+        return bodyFont;
+    }
+
+    public static String titleFont() {
+        return titleFont;
+    }
+
+    public static String decorFont() {
+        return decorFont;
+    }
+
+    // ==================== 菜单 / 图标 ====================
+
+    public static void setMenuBackground(String path) {
+        menuBackground = assign(path, DEFAULT_MENU_BACKGROUND, "主菜单背景");
+    }
+
+    public static void setMenuMusic(String path) {
+        menuMusic = assign(path, DEFAULT_MENU_MUSIC, "主菜单音乐");
+    }
+
+    /**
+     * 设置窗口图标。
+     *
+     * <p>框架<b>不</b>自带默认图标：未设置时窗口用系统默认图标（Windows 默认），
+     * 而不是去找一个框架里并不存在的文件。
+     */
+    public static void setAppIcon(String path) {
+        appIcon = assign(path, DEFAULT_APP_ICON, "应用图标");
+    }
+
+    public static String menuBackground() {
+        return menuBackground;
+    }
+
+    public static String menuMusic() {
+        return menuMusic;
+    }
+
+    /** 窗口图标路径；内容未提供时为 null —— 调用方应改用系统默认图标。 */
+    public static String appIcon() {
+        return appIcon;
+    }
+
+    public static boolean hasAppIcon() {
+        return appIcon != null && !appIcon.isEmpty();
+    }
+
+    // ==================== 主题色 ====================
+
+    public static void setPrimaryColor(String hex) {
+        primaryColor = validColor(hex, DEFAULT_PRIMARY_COLOR, "主色");
+    }
+
+    public static void setSecondaryColor(String hex) {
+        secondaryColor = validColor(hex, DEFAULT_SECONDARY_COLOR, "副色");
+    }
+
+    public static void setTertiaryColor(String hex) {
+        tertiaryColor = validColor(hex, DEFAULT_TERTIARY_COLOR, "三级色");
+    }
+
+    public static String primaryColor() {
+        return primaryColor;
+    }
+
+    public static String secondaryColor() {
+        return secondaryColor;
+    }
+
+    public static String tertiaryColor() {
+        return tertiaryColor;
+    }
+
+    // ==================== 通用资源重定向 ====================
+
+    /**
+     * 把框架引用的某个资源重定向到另一个路径。
+     *
+     * <p>给「上面那些具名 setter 没覆盖到的资源」留的通用出口，
+     * 例如某个 UI 里写死的贴图。{@code from} 必须写框架里原本引用的那个路径。
+     */
+    public static void redirect(String from, String to) {
+        if (from == null || from.trim().isEmpty() || to == null || to.trim().isEmpty()) {
+            Logger("WARNING", "资源重定向参数无效: " + from + " → " + to);
+            return;
+        }
+        REDIRECTS.put(from.trim(), to.trim());
+        Logger("INFO", "资源已重定向: " + from.trim() + " → " + to.trim());
+    }
+
+    /** 查询重定向目标；没有登记则原样返回。ResourceResolver 调用此方法。 */
+    public static String redirectOf(String path) {
+        if (path == null || REDIRECTS.isEmpty()) {
+            return path;
+        }
+        String target = REDIRECTS.get(path);
+        return target != null ? target : path;
+    }
+
+    public static Map<String, String> redirects() {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(REDIRECTS));
+    }
+
+    // ==================== 语言列表 ====================
+
+    /**
+     * 内容提供的可选语言（语言代码 → 显示名）。
+     *
+     * <p>框架自带的语言文件只有 {@code lang/zh_cn.json} 一份，它不负责决定
+     * 「这款游戏支持哪些语言」—— 那是内容的事。内容不提供时这张表为空，
+     * 设置界面就<b>不显示</b>语言切换，而不是显示一个只有一项的下拉框。
+     */
+    private static final Map<String, String> LANGUAGES = new LinkedHashMap<>();
+
+    /**
+     * 登记一个可选语言。
+     *
+     * @param code        语言代码，如 {@code zh_cn}、{@code en_us}
+     * @param displayName 设置界面里显示的名字，如「简体中文」
+     */
+    public static void addLanguage(String code, String displayName) {
+        if (code == null || code.trim().isEmpty()) {
+            Logger("WARNING", "语言代码为空，已忽略");
+            return;
+        }
+        String c = code.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+        LANGUAGES.put(c, displayName == null || displayName.trim().isEmpty() ? c : displayName.trim());
+        Logger("INFO", "已登记可选语言: " + c + "（" + LANGUAGES.get(c) + "）");
+    }
+
+    /** 可选语言（只读，保持登记顺序）。 */
+    public static Map<String, String> availableLanguages() {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(LANGUAGES));
+    }
+
+    /** 内容是否提供了语言列表 —— 为空时设置界面不显示语言切换。 */
+    public static boolean hasLanguages() {
+        return !LANGUAGES.isEmpty();
+    }
+
+    // ==================== 内部 ====================
+
+    /** 记录新值，并登记「默认路径 → 新路径」的重定向。空路径 = 清空（视为未指定）。 */
+    private static String assign(String path, String defaultValue, String what) {
+        if (path == null || path.trim().isEmpty()) {
+            Logger("WARNING", what + "路径为空，视为未指定（框架不会去加载任何默认文件）");
+            return null;
+        }
+        String v = path.trim();
+        REDIRECTS.put(defaultValue, v);
+        Logger("INFO", what + "已设为: " + v);
+        return v;
+    }
+
+    private static String validColor(String hex, String fallback, String what) {
+        if (hex == null || !hex.trim().matches("#[0-9a-fA-F]{6,8}")) {
+            Logger("WARNING", what + "不是合法的 #RRGGBB 颜色，保持默认: " + fallback);
+            return fallback;
+        }
+        return hex.trim().toUpperCase(Locale.ROOT);
+    }
+
+    /** 仅测试使用：恢复到框架默认（即「什么都没有」）。 */
+    static void resetForTest() {
+        bodyFont = null;
+        titleFont = null;
+        decorFont = null;
+        appIcon = null;
+        menuBackground = null;
+        menuMusic = null;
+        primaryColor = DEFAULT_PRIMARY_COLOR;
+        secondaryColor = DEFAULT_SECONDARY_COLOR;
+        tertiaryColor = DEFAULT_TERTIARY_COLOR;
+        REDIRECTS.clear();
+        LANGUAGES.clear();
+    }
+}

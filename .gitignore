@@ -1,0 +1,9 @@
+/build/
+/BuildOutput/
+/TestGame/
+/.gradle/
+/.qoder/
+/.idea/
+
+# 运行期产生的日志与数据（游戏本体运行时会在 TestGame/ 下生成）
+/logs/

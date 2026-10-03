@@ -1,0 +1,13 @@
+{
+  "_comment": "框架级文案。游戏内容文案请另建文件，键名建议按模块加前缀。",
+  "framework.name": "Starveil",
+  "framework.plugin.loading": "正在加载插件…",
+  "framework.plugin.consent.title": "插件加载警告",
+  "framework.plugin.consent.body": "非官方插件可能导致系统损坏，即便如此也要加载吗？\n插件操作不受游戏开发者管制，游戏开发者不承担任何责任。",
+  "framework.plugin.init.risk.title": "高风险插件注入",
+  "framework.plugin.init.risk.body": "检测到插件正在注入游戏初始化入口：\n{0}\n\n该入口由非框架的游戏开发者定义，不同游戏、不同版本可能完全不同。注入错误可能导致游戏直接崩溃，或产生难以排查的问题。\n\n即便如此也要继续吗？",
+  "framework.plugin.init.missing": "以下插件声明在 INIT 时机加载（用于注入 {0}），但该初始化类不存在：\n\n{1}\n\n这些插件是为特定的游戏内容编写的，当前游戏没有提供这个初始化入口，插件无法生效。",
+  "framework.plugin.version.mismatch": "插件 {0} 声明适配框架版本 {1}，当前框架版本为 {2}（主版本不一致）",
+  "framework.error.title": "警告",
+  "framework.error.uncaught": "应用程序产生了未被捕获的错误，请查看日志文件并交给开发者解决问题"
+}

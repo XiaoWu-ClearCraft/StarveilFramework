@@ -1,0 +1,210 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+    id 'com.gradleup.shadow' version '9.3.0'
+}
+
+group = 'com.xiaowu.game.starveil'
+version = '1.0-SNAPSHOT'
+
+// 配置 Java 编译使用 UTF-8 编码
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['--enable-preview']
+}
+
+repositories {
+    mavenCentral()
+}
+
+
+dependencies {
+    implementation 'net.java.dev.jna:jna:5.14.0'
+    implementation 'javazoom:jlayer:1.0.1'
+    implementation 'com.googlecode.soundlibs:mp3spi:1.9.5.4'
+    implementation('org.controlsfx:controlsfx:11.1.2') {
+        implementation 'com.googlecode.soundlibs:tritonus-share:0.3.7.4'
+        exclude group: 'org.openjfx'
+    }
+    implementation('com.dlsc.formsfx:formsfx-core:11.6.0') {
+        exclude group: 'org.openjfx'
+    }
+    implementation('net.synedra:validatorfx:0.4.0') {
+        exclude group: 'org.openjfx'
+    }
+    implementation 'org.kordamp.ikonli:ikonli-javafx:12.3.1'
+    implementation 'org.kordamp.bootstrapfx:bootstrapfx-core:0.4.0'
+    implementation('org.jfxtras:jmetro:11.6.16') {
+        exclude group: 'org.openjfx'
+    }
+
+    // JNA for native library access
+    implementation 'net.java.dev.jna:jna:5.14.0'
+    implementation 'net.java.dev.jna:jna-platform:5.14.0'
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    // ZXing for QR code generation
+    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'com.google.zxing:javase:3.5.3'
+
+    // ByteBuddy for bytecode manipulation and plugin injection
+    implementation 'net.bytebuddy:byte-buddy:1.17.5'
+    implementation 'net.bytebuddy:byte-buddy-agent:1.17.5'
+
+    // 本版本核心只支持 Windows，仅打包 Windows 平台的 JavaFX 原生库。
+    // 其它平台的原生库由「平台适配插件」提供（放进 <插件id>-lib/ 目录即可）。
+    implementation "org.openjfx:javafx-graphics:${javafx.version}:win"
+    implementation "org.openjfx:javafx-controls:${javafx.version}:win"
+    implementation "org.openjfx:javafx-fxml:${javafx.version}:win"
+    implementation "org.openjfx:javafx-media:${javafx.version}:win"
+    implementation "org.openjfx:javafx-swing:${javafx.version}:win"
+    implementation "org.openjfx:javafx-web:${javafx.version}:win"
+
+    testImplementation platform("org.junit:junit-bom:5.10.0")
+    testImplementation 'org.junit.jupiter:junit-jupiter-api'
+    testRuntimeOnly    'org.junit.jupiter:junit-jupiter-engine'
+    // Gradle 9 起需要显式声明 JUnit Platform Launcher
+    testRuntimeOnly    'org.junit.platform:junit-platform-launcher'
+}
+
+javafx {
+    version = '25'
+    modules = ['javafx.controls', 'javafx.fxml', 'javafx.web',
+               'javafx.media', 'javafx.swing', 'javafx.graphics']
+}
+
+application {
+    mainClass = 'com.xiaowu.game.starveil.launcher.AppEntry'
+}
+
+// 平台注入点依赖运行期 retransform（改写已经加载的类），
+// 因此必须允许 ByteBuddy 自附加并启用动态 agent 加载。
+def agentArgs = [
+        '-Djdk.attach.allowAttachSelf=true',
+        '-XX:+EnableDynamicAgentLoading'
+]
+
+// JDK 25 起，加载原生库 / 声明 native 方法会打印「受限方法」警告。
+// JavaFX 与 JNA 都是可信的本地依赖，这里显式放行，避免日志被刷屏。
+// 打包运行时 JavaFX 落在 unnamed module，ALL-UNNAMED 就够了；
+// 只有 gradlew run 会把 JavaFX 放到模块路径上，那时需要按模块名放行。
+def commonJvmArgs = agentArgs + ['--enable-native-access=ALL-UNNAMED']
+def runJvmArgs = agentArgs + [
+        '--enable-native-access=ALL-UNNAMED,javafx.graphics,javafx.media,javafx.swing'
+]
+
+test {
+    useJUnitPlatform()
+    jvmArgs = commonJvmArgs
+}
+
+// Define unified output directory
+def buildOutputDir = file("${projectDir}/BuildOutput")
+
+shadowJar {
+    archiveBaseName.set('ClearCraft')
+    archiveVersion.set('')
+    archiveClassifier.set('')
+    destinationDirectory.set(buildOutputDir)
+
+    manifest {
+        attributes 'Main-Class': 'com.xiaowu.game.starveil.launcher.AppEntry'
+        attributes 'Add-Opens': 'java.base/java.lang=ALL-UNNAMED java.base/java.lang.reflect=ALL-UNNAMED java.base/java.io=ALL-UNNAMED java.base/java.util=ALL-UNNAMED java.base/java.lang.instrument=ALL-UNNAMED'
+        // 让 java -jar 直接运行时也放行原生访问（等价于 --enable-native-access）
+        attributes 'Enable-Native-Access': 'ALL-UNNAMED'
+    }
+    exclude 'module-info.class'
+}
+
+// ============================================================
+// exe 打包（launch4j）已移出本框架项目。
+//
+// 框架只负责产出可被内容项目引用的引擎 jar；把它包装成某个具体游戏的
+// 可执行文件属于「内容」的事 —— 图标、版本号、产品名都是游戏专属的。
+// 参见 ../StarveilContent/build.gradle。
+// ============================================================
+
+run {
+    workingDir = file("${projectDir}/TestGame")
+    jvmArgs = runJvmArgs + [
+            '-Djavafx.web.disableHTMLErrorPage=true',
+            // 其余渲染优化
+            '-Dprism.dirtyregioncount=6',
+            '-Dprism.dirtyopts=true',
+            '-Dprism.cacheshaders=true',
+            '-Dprism.cacheglyphs=true',
+            '-Dprism.maxTextureSize=4096',
+            '-Dprism.printallocs=false',
+            '-Dprism.verbose=false',
+            '-Dprism.poolstats=false',
+            '-Dprism.subpixeltext=true',
+            '-Dprism.lcdtext=true',
+            '-Dprism.allowhidpi=true',
+            '-Dprism.threads=4',
+            '-Dprism.forceSync=false',
+            '-Dprism.multithread=true',
+            '-Dprism.toplevel=true',
+            '-Dprism.vsync=true',
+            '-Djavafx.pulseLogger=false',
+            '-Djavafx.animation.fullspeed=true',
+            '-Djavafx.scene.maxRenderTime=16',
+            '-XX:+UseG1GC',
+            '-XX:MaxGCPauseMillis=200',
+            '-XX:+UseStringDeduplication'
+    ]
+}
+
+
+// Copy jar to BuildOutput
+tasks.register('copyJarToOutput') {
+    dependsOn shadowJar
+    doLast {
+        println "JAR file is already in BuildOutput: ${buildOutputDir}/ClearCraft.jar"
+    }
+}
+
+// 构建框架产物（仅 JAR）
+tasks.register('buildAll') {
+    description '构建框架 JAR（exe 打包见 ../StarveilContent）'
+    group 'build'
+
+    dependsOn shadowJar
+
+    doLast {
+        println "=========================================="
+        println "框架构建完成（本版本仅支持 Windows）"
+        println "构建输出目录: ${buildOutputDir.absolutePath}"
+        println "=========================================="
+        println "构建产物:"
+        println "  - JAR: ${buildOutputDir}/ClearCraft.jar"
+        println ""
+        println "注意：这是【框架】jar，不含任何游戏内容，单独运行会提示缺少内容。"
+        println "要得到可游玩 / 可执行的产物，请构建 ../StarveilContent。"
+        println "=========================================="
+    }
+}
+
+// 快速构建（仅JAR，用于开发测试）
+tasks.register('buildFast') {
+    description '快速构建（仅JAR文件）'
+    group 'build'
+
+    dependsOn shadowJar
+
+    doLast {
+        println "快速构建完成！JAR文件位置: ${buildOutputDir}/ClearCraft.jar"
+    }
+}
+
+// ============================================================
+// 已移出框架仓的部分
+//
+// · 美术提示词构建（原 art/ → build/art-prompts/）
+//   出图配方属于【游戏内容】，随内容项目走，不再放在框架里。
+//
+// · 平台适配插件示例（原 plugin-examples/linux-adapter）
+//   已移到 ../starveil-plugin-examples，是独立项目。
+//   框架只负责定义注入点（PlatformInjectPoints）；示例怎么用它是示例自己的事，
+//   混在框架仓里既增加体积，也容易让人误以为它是框架的一部分。
+// ============================================================
