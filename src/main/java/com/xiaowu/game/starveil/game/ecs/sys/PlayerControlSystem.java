@@ -111,10 +111,8 @@ public final class PlayerControlSystem implements EcsSystem {
         updateVelocity(ctl, desiredVx, desiredVy, wantsMove, inertia, deltaTime);
         updateSkid(spr, ctl, inertia, wasSprinting, isSprinting, wantsMove);
 
-        double deltaX = ctl.velocityX * deltaTime;
-        double deltaY = ctl.velocityY * deltaTime;
-        if (deltaX != 0 || deltaY != 0) {
-            movePlayer(t, spr, deltaX, deltaY, map, gravity);
+        if (ctl.velocityX != 0 || ctl.velocityY != 0) {
+            movePlayer(t, spr, ctl, map, gravity, deltaTime);
         }
         // 是否算「在移动」按实际速度判定，而不是按有没有按键 ——
         // 否则惯性滑行期间会错误地显示待机姿态。
@@ -230,15 +228,26 @@ public final class PlayerControlSystem implements EcsSystem {
      * 一个静默的、很难解释的 bug。所以这里先看 {@code gravity} 是否为 null
      * （框架只在 {@code mode.hasGravity()} 时给玩家挂这个组件）。
      *
+     * <h2>撞上就把速度吃掉</h2>
+     * 被挡住的那一轴，速度必须<b>立刻归零</b>。否则惯性会把「撞墙」变成「蓄力」：
+     * 疾跑跳起来撞在墙上，速度一直留在 {@code velocityX} 里（位置不动、速度不掉），
+     * 等落回地面或从墙边滑开，那股攒下来的速度会一次性把玩家推出去 ——
+     * 玩家的直觉是「撞墙之后力就该没了」，而不是「撞墙反而攒了一股劲」。
+     * 顺带修掉两个同源的小毛病：贴着墙时还播「走路」动画，
+     * 以及松开方向键后从满速开始滑行（滑行距离按 decelRate 算能到两百多像素）。
+     *
+     * <p>只清被挡住的那一轴，所以沿着墙滑行（斜着撞墙）不受影响。
+     *
      * @param gravity 无重力模式（{@code NORMAL}）下为 {@code null}
      */
-    private static void movePlayer(Transform t, Sprite spr, double deltaX, double deltaY,
+    private static void movePlayer(Transform t, Sprite spr, PlayerController ctl,
                                    WorldMap worldMap,
-                                   com.xiaowu.game.starveil.game.ecs.comp.Gravity gravity) {
+                                   com.xiaowu.game.starveil.game.ecs.comp.Gravity gravity,
+                                   double deltaTime) {
         double x = t.x;
         double y = t.y;
-        double targetX = x + deltaX;
-        double targetY = y + deltaY;
+        double targetX = x + ctl.velocityX * deltaTime;
+        double targetY = y + ctl.velocityY * deltaTime;
 
         boolean gravityMode = gravity != null && gravity.enabled;
         boolean passOneWay = gravityMode && gravity.isDroppingThrough();
@@ -249,13 +258,14 @@ public final class PlayerControlSystem implements EcsSystem {
                 : worldMap.isBlockedByAirWall(tryX, y, t.width, t.height);
         if (blockedX) {
             tryX = x;
+            ctl.velocityX = 0;
         }
 
         double tryY = targetY;
         boolean blockedY;
         if (!gravityMode) {
             blockedY = worldMap.isBlockedByAirWall(tryX, tryY, t.width, t.height);
-        } else if (deltaY > 0) {
+        } else if (ctl.velocityY > 0) {
             blockedY = worldMap.isBlockedFalling(
                     y + t.height, tryX, tryY, t.width, t.height, passOneWay);
         } else {
@@ -263,6 +273,7 @@ public final class PlayerControlSystem implements EcsSystem {
         }
         if (blockedY) {
             tryY = y;
+            ctl.velocityY = 0;
         }
 
         double newX = tryX;
@@ -270,6 +281,13 @@ public final class PlayerControlSystem implements EcsSystem {
 
         if (worldMap.isPlayerOutOfBounds(newX, newY, t.width, t.height)) {
             double[] clampedPos = worldMap.clampPlayerPosition(newX, newY, t.width, t.height);
+            // 被地图边界夹住和撞墙是一回事：夹住的那一轴同样不该留着速度
+            if (clampedPos[0] != newX) {
+                ctl.velocityX = 0;
+            }
+            if (clampedPos[1] != newY) {
+                ctl.velocityY = 0;
+            }
             newX = clampedPos[0];
             newY = clampedPos[1];
         }
