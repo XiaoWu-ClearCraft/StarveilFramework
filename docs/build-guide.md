@@ -38,6 +38,13 @@ gradlew.bat run --args="-no-admin -debug -no-content"
 > **跑内容项目时记得带 `-no-admin -debug`**：`-no-admin` 去掉「非管理员模式」提示框，
 > `-debug` 跳过显卡优化提示、也不请求提权。两个都不带的话，启动会被一个模态对话框
 > 挡住 —— 看起来像「卡在硬件信息那一行不动了」，其实只是在等你点确定。
+>
+> **游戏还在跑的时候不要重新构建框架 jar。** `shadowJar` 会直接覆盖
+> `BuildOutput/ClearCraft.jar`，而运行中的 JVM 已经把那个文件映射进内存了 ——
+> 覆盖之后类加载器读到的内容与映射不一致，表现是随机的
+> `NoClassDefFoundError`（连 `javafx.scene.input.MouseEvent` 这种框架自带类都会
+> 「找不到」），严重时 JVM 直接 `EXCEPTION_ACCESS_VIOLATION` 崩掉。
+> 先关掉游戏再构建。
 
 ---
 
