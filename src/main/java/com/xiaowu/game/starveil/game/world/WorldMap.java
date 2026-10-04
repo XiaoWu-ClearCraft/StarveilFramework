@@ -333,6 +333,13 @@ public class WorldMap {
                 ? root.get("gravityDirection").getAsDouble()
                 : 0;
 
+        // 玩法模式直接决定操作手感（会不会自动下落），出问题时最容易被误报成
+        // 「玩家动不了 / 一直往下掉」的 bug，所以进图时明确记一条。
+        if (gameplayMode.hasGravity()) {
+            LoggerManager.Logger("INFO", "地图玩法模式: " + gameplayMode
+                    + "（重力方向 " + gravityAngleDegrees + "°）");
+        }
+
         // 世界坐标标记
         wordMarkers = root.has("wordMarkers") && root.get("wordMarkers").getAsBoolean();
 

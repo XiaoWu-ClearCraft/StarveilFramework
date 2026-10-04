@@ -838,42 +838,58 @@ AnimationSheet sheet = sprite.resolveSheet(Facing.LEFT);
 
 ### 3. 玩法模式
 
+世界有两种玩法模式，由**地图文件**声明（不是章节声明 —— 玩法是地图的天然属性，
+同一章可以先后进不同玩法的图）：
+
+```json
+{
+  "gameplayMode": "GRAVITY",
+  "gravityDirection": 0
+}
+```
+
+| 模式 | 含义 |
+|---|---|
+| `NORMAL`（缺省） | 俯视玩法，无重力 |
+| `GRAVITY` | 把 `y` 轴当作高度，实体沿 `gravityDirection` 自动下落 |
+
+`gravityDirection` 角度约定：**`0°` 向下**，顺时针为正 ——
+`90°` 向右、`180°` 向上、`270°` 向左。
+
+**碰撞复用既有的空气墙**，不需要新的地形数据。带重力的图要注意一件事：
+`GravitySystem` 单帧最多前进 `maxFallSpeed * deltaTime ≈ 1200/60 = 20px`，
+所以**一条 8px 厚的空气墙会被直接跨过去**（表现为「穿过地板掉下去」）。
+台面至少要有 16px 厚（两条 8px 相接），或者调小 `Gravity.maxFallSpeed`。
+
+#### 当前重力玩法的边界（别当成 bug）
+
+- **没有跳跃动作**：`Gravity` 组件只有下落速度，没有起跳冲量，框架里也没有
+  跳跃按键。按住上方向键可以抵消重力往上飘。
+- **空中也能水平移动**：`PlayerControlSystem` 不看 `grounded`。
+
+也就是说现在拿到的是「自由落体 + 四方向控制」，还不是完整的平台跳跃手感。
+
+**任意角度都支持**（例如 `45` 斜向下），方向向量为 `(sin θ, cos θ)` ——
+屏幕坐标 y 轴向下，所以是 `(sin, cos)` 而非 `(cos, sin)`。
+无法识别的 `gameplayMode` 会打 WARNING 并回退到 `NORMAL`。
+`mountWorld` 在地图加载后读取这两个字段写入 ECS 世界，随后给玩家挂上 `Gravity` 组件。
+
+`docs` 之外还有一份可运行的例子，在**内容项目**里（不在本仓库）：
+
+| 文件 | 说明 |
+|---|---|
+| `<内容项目>/src/main/resources/assets/starveil/data/worlds/gravity-test.json` | 带重力的测试图：1250×900，出生点在最高处，四层不同高度的台面 |
+| `<内容项目>/src/main/java/.../content/chapter4/Chapter4.java` | 第四章：进这张图并讲解当前限制 |
+
+它踩过的坑值得参考：台面写成两条相接的 8px 空气墙（合计 16px），
+才不会因为单帧 20px 的位移被穿过去。
+
+### 4. 惯性与急停
+
 ```java
 GameplayMode.NORMAL   // 原有俯视玩法，无重力
 GameplayMode.GRAVITY  // 把 y 当作 z，竖直方向自动下落
 ```
-
-#### 由地图声明（默认来源）
-
-**纵向 / 平面模式默认由地图定义**，代码只在需要时覆盖。地图 JSON 加两个字段即可：
-
-```json
-{
-  "name": "gravity-test",
-  "gameplayMode": "GRAVITY",
-  "gravityDirection": 90
-}
-```
-
-| 字段 | 缺省 | 说明 |
-|---|---|---|
-| `gameplayMode` | `NORMAL` | `NORMAL` = 平面（无重力）；`GRAVITY` = 纵向（有重力） |
-| `gravityDirection` | `0` | 重力方向，单位**度**。0° 向下，顺时针为正 |
-
-无法识别的 `gameplayMode` 会打 WARNING 并回退到 `NORMAL`。
-
-`mountWorld` 在地图加载后读取这两个字段并写入 ECS 世界，随后给玩家挂上 `Gravity` 组件。
-
-#### 重力方向约定
-
-```
-0°   → 下 (+y)      90°  → 右 (+x)
-180° → 上 (-y)      270° → 左 (-x)
-```
-
-方向向量为 `(sin θ, cos θ)` —— 屏幕坐标 y 轴向下，所以是 `(sin, cos)` 而非 `(cos, sin)`。
-
-任意角度都支持（例如 45° 斜向下），重力沿该方向加速下落。
 
 #### 代码覆盖
 
