@@ -12,9 +12,7 @@ import javafx.scene.Node;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.paint.Color;
-import javafx.scene.shape.Circle;
 import javafx.scene.shape.Polygon;
-import javafx.scene.shape.Rectangle;
 
 import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
 
@@ -26,21 +24,18 @@ import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logg
  * 做平台游戏时这立刻不够用：斜坡、三角台阶、洞穴、六边形平台都不是矩形，
  * 而「用一堆小矩形拼出斜坡」既难写又会让碰撞在接缝处抖。
  *
- * <p>所以碰撞形状改成<b>任意多边形</b>（外加圆形），矩形保留为它的特例 ——
+ * <p>所以碰撞形状改成<b>任意多边形</b>，矩形保留为它的特例 ——
  * 老地图一个字都不用改。
  *
- * <h2>JSON 三种写法</h2>
+ * <h2>JSON 两种写法</h2>
  * <pre>
  * // 1) 矩形（老写法，仍然支持）
  * { "x": 0, "y": 860, "x_to": 450, "y_to": 884 }
  *
- * // 2) 多边形（任意顶点，凸凹都行）
+ * // 2) 多边形（任意顶点，凸凹都行）—— 斜坡、台阶、八边形台子都用它
  * { "polygon": [ [0,860], [200,700], [400,860] ] }
  *
- * // 3) 圆形
- * { "circle": { "x": 300, "y": 800, "r": 60 } }
- *
- * // 4) 任意一种形状都可以加 oneWay —— 变成单向平台（从下面能跳上去，上面按 S 能穿下来）
+ * // 3) 任意一种写法都可以加 oneWay —— 变成单向平台（从下面能跳上去，上面按 S 能穿下来）
  * { "x": 100, "y": 600, "x_to": 400, "y_to": 620, "oneWay": true }
  * </pre>
  *
@@ -52,6 +47,12 @@ import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logg
  * <p>加 {@code "oneWay": true} 则变成<b>单向平台</b>：只有从上面落下来才接得住，
  * 从下面可以跳穿上去、从侧面可以走过去，站在上面按「下」还会穿下去。
  * 详见 {@link OneWay}。
+ *
+ * <h2>为什么没有圆形</h2>
+ * 圆看着好用，实际做地形时基本用不上：地面、台阶、斜坡、洞穴口都是<b>有边的</b>形状，
+ * 而圆既拼不出边，判定又比多边形多一套（最近点距离），还让「站立面」这个概念
+ * 对一半形状失效（圆没有水平的顶面）。用多边形画一个近似的圆只要多写几个顶点，
+ * 却能把「只有一种形状」这条简化一路带到碰撞、贴图、调试显示和单向平台里。
  */
 public sealed interface AirWall {
 
@@ -92,13 +93,11 @@ public sealed interface AirWall {
     /**
      * 站立面高度（脚底所在的 y）：实体落在这个高度上就算站住了。
      *
-     * <p>多边形取<b>最高顶点</b>的 y（对矩形台面就是台面高度；斜面没有唯一的
+     * <p>取<b>最高顶点</b>的 y（对矩形台面就是台面高度；斜面没有唯一的
      * 「台面」，所以斜的单向平台不受支持）。目前只有单向平台会用到它 ——
      * 实心空气墙的碰撞完全由 {@link #intersects} 的几何决定，不需要这个概念。
-     *
-     * @return {@code null} 表示该形状不提供站立面（例如圆形，站上去只有一个点）
      */
-    Double surfaceTop();
+    double surfaceTop();
 
     /** 是否是单向平台（可从下方穿过、可按向下键落下）。 */
     boolean oneWay();
@@ -117,8 +116,8 @@ public sealed interface AirWall {
      * <p>相交判定 = 「包围盒有顶点落在多边形内」<b>或</b>「多边形某条边穿过包围盒」。
      * 两条缺一不可：细长的斜坡可能整条穿过包围盒而顶点都在外面。
      */
-    record Poly(double[] xs, double[] ys, String texture, double textureSize,
-                boolean debugFill) implements AirWall {
+    record Poly(double[] xs, double[] ys, String texture, double textureSize)
+            implements AirWall {
 
         public Poly {
             if (xs == null || ys == null || xs.length != ys.length || xs.length < 3) {
@@ -128,8 +127,7 @@ public sealed interface AirWall {
         }
 
         /** 由 {@code [[x,y], ...]} 形式的数组构造。 */
-        public static Poly fromJsonArray(JsonArray points, String texture,
-                                         double textureSize, boolean debugFill) {
+        public static Poly fromJsonArray(JsonArray points, String texture, double textureSize) {
             if (points == null || points.size() < 3) {
                 Logger("WARNING", "空气墙多边形的顶点少于 3 个，已忽略");
                 return null;
@@ -154,7 +152,7 @@ public sealed interface AirWall {
                     return null;
                 }
             }
-            return new Poly(xs, ys, texture, textureSize, debugFill);
+            return new Poly(xs, ys, texture, textureSize);
         }
 
         @Override
@@ -174,7 +172,7 @@ public sealed interface AirWall {
 
         /** 顶边 y —— 也就是「站上去的脚底高度」。 */
         @Override
-        public Double surfaceTop() {
+        public double surfaceTop() {
             double top = Double.MAX_VALUE;
             for (double val : ys) {
                 top = Math.min(top, val);
@@ -237,13 +235,10 @@ public sealed interface AirWall {
             }
             Polygon shape = new Polygon(flat);
             shape.setMouseTransparent(true);
-            if (debugFill) {
-                shape.setFill(Color.rgb(255, 0, 0, 0.22));
-                shape.setStroke(Color.rgb(255, 0, 0, 0.6));
-            } else {
-                shape.setFill(Color.TRANSPARENT);
-                shape.setStroke(null);
-            }
+            // 空气墙默认是隐形的（这正是名字的由来）；要看见它请按 F3，
+            // 由 WorldMap.showAirWalls 统一样式（实心=青、单向=金）。
+            shape.setFill(Color.TRANSPARENT);
+            shape.setStroke(null);
 
             // 贴图作为形状的子节点，并用形状裁剪 —— 这样贴图不会溢出到多边形外，
             // 而形状本身仍然透明（空气墙是隐形的，只是视觉上铺了层皮）
@@ -300,18 +295,13 @@ public sealed interface AirWall {
         /** 复制一份形状顶点，并平移到左上角为原点的坐标系（供裁剪用）。 */
         private static javafx.scene.shape.Shape copyShape(javafx.scene.shape.Shape src) {
             javafx.geometry.Bounds b = src.getBoundsInLocal();
-            if (src instanceof Polygon poly) {
-                Polygon copy = new Polygon();
-                for (int i = 0; i + 1 < poly.getPoints().size(); i += 2) {
-                    copy.getPoints().add(poly.getPoints().get(i) - b.getMinX());
-                    copy.getPoints().add(poly.getPoints().get(i + 1) - b.getMinY());
-                }
-                return copy;
+            Polygon poly = (Polygon) src;
+            Polygon copy = new Polygon();
+            for (int i = 0; i + 1 < poly.getPoints().size(); i += 2) {
+                copy.getPoints().add(poly.getPoints().get(i) - b.getMinX());
+                copy.getPoints().add(poly.getPoints().get(i + 1) - b.getMinY());
             }
-            if (src instanceof Circle c) {
-                return new Circle(c.getRadius());
-            }
-            return src;
+            return copy;
         }
 
         /**
@@ -327,80 +317,6 @@ public sealed interface AirWall {
         }
     }
 
-    // ==================== 圆形 ====================
-
-    /** 圆形障碍（滚石、树桩、圆台…）。 */
-    record Disc(double cx, double cy, double radius, String texture, double textureSize,
-                boolean debugFill) implements AirWall {
-
-        @Override
-        public int pointCount() {
-            return 1;
-        }
-
-        @Override
-        public boolean blocksFall(double startFeetY, double x, double y, double w, double h) {
-            return intersects(x, y, w, h);
-        }
-
-        @Override
-        public boolean oneWay() {
-            return false;
-        }
-
-        /** 圆形不提供水平站立面（站上去只是一个点），返回 null。 */
-        @Override
-        public Double surfaceTop() {
-            return null;
-        }
-
-        @Override
-        public boolean intersects(double x, double y, double w, double h) {
-            // 找包围盒上离圆心最近的点，比较它与圆心的距离
-            double nearestX = clamp(cx, x, x + w);
-            double nearestY = clamp(cy, y, y + h);
-            double dx = cx - nearestX;
-            double dy = cy - nearestY;
-            return dx * dx + dy * dy <= radius * radius;
-        }
-
-        private static double clamp(double v, double lo, double hi) {
-            return v < lo ? lo : (v > hi ? hi : v);
-        }
-
-        @Override
-        public Node buildNode() {
-            Circle shape = new Circle(cx, cy, radius);
-            shape.setMouseTransparent(true);
-            if (debugFill) {
-                shape.setFill(Color.rgb(255, 0, 0, 0.22));
-                shape.setStroke(Color.rgb(255, 0, 0, 0.6));
-            } else {
-                shape.setFill(Color.TRANSPARENT);
-                shape.setStroke(null);
-            }
-            if (texture != null && !texture.isBlank()) {
-                Image img = TextureNodeFactory.loadImage(texture);
-                if (img != null) {
-                    ImageView iv = new ImageView(img);
-                    iv.setFitWidth(radius * 2);
-                    iv.setFitHeight(radius * 2);
-                    iv.setLayoutX(cx - radius);
-                    iv.setLayoutY(cy - radius);
-                    iv.setMouseTransparent(true);
-                    // 贴图本身裁成圆，避免方角露在多边形/圆形边界外
-                    Circle clip = new Circle(radius);
-                    clip.setCenterX(radius);
-                    clip.setCenterY(radius);
-                    iv.setClip(clip);
-                    return Poly.buildWrapper(shape, iv);
-                }
-                Logger("WARNING", "空气墙贴图加载失败: " + texture);
-            }
-            return shape;
-        }
-    }
-
     // ==================== 单向平台 ====================
 
     /**
@@ -408,7 +324,7 @@ public sealed interface AirWall {
      *
      * <p>做成装饰器而不是给每个形状加字段，是因为「单向」与形状本身无关：
      * 只要形状有水平台面，单向行为就完全一样（从下方可以穿过、从上方踩得住）。
-     * 包一层之后 {@link Poly} / {@link Disc} 不需要知道单向这回事。
+     * 包一层之后 {@link Poly} 不需要知道单向这回事。
      *
      * <p><b>为什么判定要看「下落前的脚底位置」</b>：
      * 实体上升穿过台面时，某一帧它的包围盒必然与台面相交；如果只看相交就挡，
@@ -430,20 +346,15 @@ public sealed interface AirWall {
 
         @Override
         public boolean blocksFall(double startFeetY, double x, double y, double w, double h) {
-            Double top = delegate.surfaceTop();
-            if (top == null) {
-                // 没有水平台面（圆形）就没有「从上面踩住」这回事，一律不挡
-                return false;
-            }
             // 下落前脚底必须在台面之上；从下面往上穿的实体脚底在台面之下，直接放过
-            if (startFeetY > top + SURFACE_EPSILON) {
+            if (startFeetY > delegate.surfaceTop() + SURFACE_EPSILON) {
                 return false;
             }
             return delegate.intersects(x, y, w, h);
         }
 
         @Override
-        public Double surfaceTop() {
+        public double surfaceTop() {
             return delegate.surfaceTop();
         }
 
@@ -468,26 +379,17 @@ public sealed interface AirWall {
     /**
      * 解析地图 JSON 里的一条空气墙。
      *
-     * <p>三种写法按优先级：{@code polygon} &gt; {@code circle} &gt; {@code x/y/x_to/y_to}。
+     * <p>两种写法按优先级：{@code polygon} &gt; {@code x/y/x_to/y_to}。
      * 都不合法时返回 {@code null}（调用方跳过并记录）。
      *
      * <p>可附加 {@code "oneWay": true} 变成单向平台（见 {@link OneWay}）。
      */
-    static AirWall fromJson(JsonObject o, boolean debugFill) {
-        AirWall shape = parseShape(o, debugFill);
+    static AirWall fromJson(JsonObject o) {
+        AirWall shape = parseShape(o);
         if (shape == null) {
             return null;
         }
-        if (!isOneWayRequested(o)) {
-            return shape;
-        }
-        // 单向判定依赖「台面高度」，而圆没有水平台面（surfaceTop() 返回 null）。
-        // 若直接把圆包成单向，它会变成一块永不阻挡的装饰 —— 与其静默失效，不如忽略并告警。
-        if (shape.surfaceTop() == null) {
-            Logger("WARNING", "空气墙 oneWay 只对水平台面有意义，圆形会永不阻挡，已按普通空气墙处理");
-            return shape;
-        }
-        return new OneWay(shape);
+        return isOneWayRequested(o) ? new OneWay(shape) : shape;
     }
 
     private static boolean isOneWayRequested(JsonObject o) {
@@ -502,7 +404,7 @@ public sealed interface AirWall {
         }
     }
 
-    private static AirWall parseShape(JsonObject o, boolean debugFill) {
+    private static AirWall parseShape(JsonObject o) {
         if (o == null) {
             return null;
         }
@@ -510,7 +412,7 @@ public sealed interface AirWall {
         double textureSize = o.has("textureSize") ? o.get("textureSize").getAsDouble() : 0;
 
         if (o.has("polygon") && o.get("polygon").isJsonArray()) {
-            AirWall wall = Poly.fromJsonArray(o.getAsJsonArray("polygon"), texture, textureSize, debugFill);
+            AirWall wall = Poly.fromJsonArray(o.getAsJsonArray("polygon"), texture, textureSize);
             if (wall != null) {
                 return wall;
             }
@@ -518,19 +420,12 @@ public sealed interface AirWall {
             return null;
         }
 
-        if (o.has("circle") && o.get("circle").isJsonObject()) {
-            JsonObject c = o.getAsJsonObject("circle");
-            if (!c.has("x") || !c.has("y") || !c.has("r")) {
-                Logger("WARNING", "空气墙 circle 需要 x/y/r 三个字段，已跳过这条");
-                return null;
-            }
-            double r = c.get("r").getAsDouble();
-            if (r <= 0) {
-                Logger("WARNING", "空气墙 circle 的半径必须为正，已跳过这条");
-                return null;
-            }
-            return new Disc(c.get("x").getAsDouble(), c.get("y").getAsDouble(), r,
-                    texture, textureSize, debugFill);
+        // 老写法 "circle" 已经删掉：地形都是有边的形状，圆既拼不出边又让
+        // 「站立面」对一半形状失效。这里明确告警而不是静默忽略 ——
+        // 否则老地图会少一块碰撞，玩起来就是「这里怎么掉下去了」。
+        if (o.has("circle")) {
+            Logger("WARNING", "空气墙不再支持 circle，请改用 polygon 近似（例如八边形）：已跳过这条");
+            return null;
         }
 
         // 老写法：两个对角点 → 矩形（转成 4 顶点多边形，走同一条碰撞路径）
@@ -546,7 +441,7 @@ public sealed interface AirWall {
         AirWallGeometry.Rect box = AirWallGeometry.of(x, y, xTo, yTo);
         double[] xs = {box.x(), box.x() + box.width(), box.x() + box.width(), box.x()};
         double[] ys = {box.y(), box.y(), box.y() + box.height(), box.y() + box.height()};
-        return new Poly(xs, ys, texture, textureSize, debugFill);
+        return new Poly(xs, ys, texture, textureSize);
     }
 
     /** 一组形状中只要有一个相交就算被挡住。 */

@@ -262,8 +262,9 @@ public class WorldMap {
         // 清空死亡 NPC 记录（地图切换时重置，存档保存/加载由外部处理）
         deadNpcIds.clear();
 
-        // 清空空气墙
+        // 清空空气墙（形状与节点两个列表必须一起清：showAirWalls 按下标配对）
         airWalls.clear();
+        airWallNodes.clear();
 
         // 清空世界节点（保留基本结构）
         if (world != null) {
@@ -366,6 +367,15 @@ public class WorldMap {
                     + "（重力方向 " + gravityAngleDegrees + "°）");
         }
 
+        // 立刻同步到 ECS 世界，再往下走才会创建 NPC —— 实体在生成时按当前模式
+        // 决定要不要挂 Gravity（见 EntityFactory.applyGravityForMode）。
+        // 如果等到 loadFromFile 返回之后才设置，这一趟创建的 NPC 会漏掉重力，
+        // 只能再补一次遍历 —— 那种「先创建后补救」的时序很容易在改动中失配。
+        if (ecsWorld != null) {
+            ecsWorld.setGameplayMode(gameplayMode);
+            ecsWorld.setGravityAngleDegrees(gravityAngleDegrees);
+        }
+
         // 世界坐标标记
         wordMarkers = root.has("wordMarkers") && root.get("wordMarkers").getAsBoolean();
 
@@ -418,24 +428,34 @@ public class WorldMap {
             }
         }
 
-        // 空气墙：支持矩形（老写法）、任意多边形、圆形 —— 见 AirWall 的说明。
+        // 空气墙：支持矩形（老写法）与任意多边形 —— 见 AirWall 的说明。
         // 形状与贴图分离：贴图纯视觉，碰撞只看形状。
         if (root.has("airWall") && root.get("airWall").isJsonArray()) {
             JsonArray aw = root.getAsJsonArray("airWall");
+            int oneWayCount = 0;
             for (JsonElement e : aw) {
                 if (!e.isJsonObject()) {
                     continue;
                 }
-                AirWall wall = AirWall.fromJson(e.getAsJsonObject(), showAirWallDebug);
+                AirWall wall = AirWall.fromJson(e.getAsJsonObject());
                 if (wall == null) {
                     continue;
                 }
                 airWalls.add(wall);
+                if (wall.oneWay()) {
+                    oneWayCount++;
+                }
                 javafx.scene.Node node = wall.buildNode();
                 airWallNodes.add(node);
                 world.getChildren().add(node);
             }
-            LoggerManager.Logger("DEBUG", "已加载 " + airWalls.size() + " 个空气墙形状");
+            LoggerManager.Logger("DEBUG", "已加载 " + airWalls.size() + " 个空气墙形状"
+                    + (oneWayCount > 0 ? "（其中 " + oneWayCount + " 个单向平台）" : ""));
+            // F3 开着的时候换地图：新节点刚建出来是隐形的，这里补一次调试样式，
+            // 否则切图之后要按两下 F3 才看得见（一次灭、一次亮）。
+            if (showAirWallDebug) {
+                showAirWalls(true);
+            }
         }
 
         // NPC（简单占位）
@@ -1114,6 +1134,17 @@ public class WorldMap {
     }
 
     /**
+     * 当前地图加载的空气墙形状（只读视图）。
+     *
+     * <p>给调试与测试用：想知道「这块到底是不是单向的」「一共几个形状」时，
+     * 不该再回去读一遍 JSON —— 那是另一条代码路径，读出来的东西可能和
+     * 实际挂上去的对不上（被跳过的畸形条目就是例子）。
+     */
+    public java.util.List<AirWall> getAirWalls() {
+        return java.util.Collections.unmodifiableList(airWalls);
+    }
+
+    /**
      * 检测两个矩形区域是否重叠
      */
     public boolean isOverlapping(double x1, double y1, double w1, double h1, double x2, double y2, double w2, double h2) {
@@ -1121,35 +1152,49 @@ public class WorldMap {
     }
 
     /**
-     * 在调试模式下显示或隐藏空气墙轮廓（便于调试）
-     */
-    /**
      * 在调试模式下显示或隐藏空气墙轮廓（便于调试）。
      *
-     * <p>形状可能是多边形或圆形，所以按 {@code Shape} 统一处理。
+     * <p>形状可能是多边形（含矩形），所以按 {@code Shape} 统一处理。
      * 带贴图的那种（形状 + 贴图子节点）只改外层形状的样式，贴图保持不动 ——
      * 所以要先从 {@link #world} 的子节点里找回真正挂上去的那些节点。
+     *
+     * <p><b>单向平台用另一种颜色（金黄）</b>：它们和实心墙在几何上长得一模一样，
+     * 只有「落下来会不会被接住」不同 —— 调试时最常问的就是「这块到底是不是单向的」，
+     * 同一个颜色等于没显示。
+     *
+     * <p>两个列表一一对应（加载时同一次循环里成对添加），所以直接按下标取形状。
      */
     public void showAirWalls(boolean show) {
         showAirWallDebug = show;
         if (airWallNodes.isEmpty()) {
             return;
         }
-        for (javafx.scene.Node node : airWallNodes) {
-            javafx.scene.shape.Shape shape = airWallShape(node);
+        for (int i = 0; i < airWallNodes.size(); i++) {
+            javafx.scene.shape.Shape shape = airWallShape(airWallNodes.get(i));
             if (shape == null) {
                 continue;
             }
-            if (show) {
-                shape.setFill(Color.rgb(0, 255, 255, 0.12));
-                shape.setStroke(Color.CYAN);
-                shape.setStrokeWidth(1);
-                shape.setMouseTransparent(true);
-            } else {
-                shape.setFill(Color.TRANSPARENT);
-                shape.setStroke(null);
-            }
+            boolean oneWay = i < airWalls.size() && airWalls.get(i).oneWay();
+            applyAirWallDebugStyle(shape, show, oneWay);
         }
+    }
+
+    /** 一个空气墙形状在调试模式下的样式。 */
+    private static void applyAirWallDebugStyle(javafx.scene.shape.Shape shape,
+                                               boolean show, boolean oneWay) {
+        if (!show) {
+            shape.setFill(Color.TRANSPARENT);
+            shape.setStroke(null);
+            shape.setStrokeWidth(0);
+            return;
+        }
+        Color color = oneWay ? Color.GOLD : Color.CYAN;
+        shape.setFill(oneWay
+                ? Color.rgb(255, 215, 0, 0.18)
+                : Color.rgb(0, 255, 255, 0.12));
+        shape.setStroke(color);
+        shape.setStrokeWidth(oneWay ? 2 : 1);
+        shape.setMouseTransparent(true);
     }
 
     /** 从空气墙显示节点里取出真正的碰撞形状（带贴图时节点是个 Group）。 */
@@ -2341,6 +2386,7 @@ public class WorldMap {
 
         // 清理数据（包括 triggerEvents，因为这是新地图的开始）
         airWalls.clear();
+        airWallNodes.clear();
         events.clear();
         eventWasMatching.clear();
         triggeredEvents.clear();
@@ -2565,6 +2611,8 @@ public class WorldMap {
             .set("starveil:item_id", itemId)
             .set("starveil:dropped_id", dropped.id);
         ecsWorld.add(e, attrs);
+        // 重力模式下掉出来的东西会落到地上（与玩家/NPC 同一条规则）
+        EntityFactory.applyGravityForMode(ecsWorld, e);
         return e;
     }
 

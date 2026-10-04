@@ -105,14 +105,24 @@ class GravitySystemTest {
 
     // ==================== 落地 ====================
 
+    /**
+     * 撞到阻挡时应当<b>停在贴住表面的位置</b>，而不是原地不动。
+     *
+     * <p>原地不动意味着角色停在离地面最多一个「整帧位移」（终端速度下 20px）
+     * 的半空中，之后几帧再一小段一小段挪下来 —— 看起来就是落地时悬停加抖动。
+     * 子步进之后停在最后一次没被挡住的小步上，误差不超过子步长。
+     */
     @Test
-    void blockedStepLandsInPlace() {
+    void blockedStepStopsJustAboveTheSurface() {
+        // 本帧要走 (500 + 1800/60)/60 = 8.83px，8px 之后被挡住
         GravitySystem.FallStep s = GravitySystem.computeFall(
                 500, DT, ACCEL, MAX_FALL, distance -> distance > 8);
 
-        assertEquals(0, s.distance(), 1e-9, "撞到阻挡时不应产生位移");
-        assertEquals(0, s.speed(), 1e-9, "落地后速度必须清零，否则会持续累积");
         assertTrue(s.landed());
+        assertEquals(0, s.speed(), 1e-9, "落地后速度必须清零，否则会持续累积");
+        assertTrue(s.distance() <= 8, "不能越过阻挡位置，实测 " + s.distance());
+        assertTrue(s.distance() >= 8 - 2,
+                "应当停在紧贴阻挡处（最多差一个子步长），实测 " + s.distance());
     }
 
     @Test

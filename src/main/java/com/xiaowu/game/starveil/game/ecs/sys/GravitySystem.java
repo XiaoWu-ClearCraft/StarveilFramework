@@ -192,6 +192,15 @@ public final class GravitySystem implements EcsSystem {
     }
 
     /**
+     * 下落时每小步前进的像素数。
+     *
+     * <p>取值是「精度 vs 判定次数」的折中：越小越贴合表面，但每帧的碰撞判定次数
+     * 越多（终端速度下一帧 20px，取 2px 就是 10 次判定 —— 一个实体一帧十次很便宜）。
+     * 2px 在 60FPS 下是肉眼看不出的误差，足以消掉「悬停再抖」的观感。
+     */
+    private static final double MAX_SUB_STEP = 2;
+
+    /**
      * 重力方向的单位向量。
      *
      * <p>角度约定：{@code 0° = 向下（+y）}，顺时针为正 ——
@@ -211,6 +220,13 @@ public final class GravitySystem implements EcsSystem {
      * <p>以「沿重力方向前进的距离」为单位，因此天然支持任意方向：
      * 调用方把距离换算成实际坐标再判定碰撞即可。
      *
+     * <h2>为什么要子步进</h2>
+     * 终端速度下（{@code 1200 × 1/60 = 20px}）一帧要走 20 像素。
+     * 如果只判定「整帧走完的位置」，被挡住时只能原地不动 ——
+     * 而那时角色离地面还差最多 20px，于是看起来像<b>悬在地面上方</b>，
+     * 之后几帧再一点点挪下来（连带 {@code grounded} 反复横跳）。
+     * 拆成不超过 {@link #MAX_SUB_STEP} 像素的小步前进，就会停在紧贴表面的位置。
+     *
      * @param blockedAtDistance 给定沿重力方向前进的距离，判断该处是否被阻挡
      */
     static FallStep computeFall(double speed, double deltaTime,
@@ -220,8 +236,14 @@ public final class GravitySystem implements EcsSystem {
         double v = Math.min(speed + acceleration * deltaTime, maxFallSpeed);
         double distance = v * deltaTime;
 
-        if (blockedAtDistance.test(distance)) {
-            return new FallStep(0, 0, true);
+        double moved = 0;
+        while (moved < distance) {
+            double next = Math.min(distance, moved + MAX_SUB_STEP);
+            if (blockedAtDistance.test(next)) {
+                // 停在最后一个没被挡住的位置：离表面最多 MAX_SUB_STEP，肉眼看不出来
+                return new FallStep(0, moved, true);
+            }
+            moved = next;
         }
         return new FallStep(v, distance, false);
     }

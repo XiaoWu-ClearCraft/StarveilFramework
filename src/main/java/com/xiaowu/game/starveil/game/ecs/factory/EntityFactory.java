@@ -9,6 +9,7 @@ import com.xiaowu.game.starveil.game.ecs.World;
 import com.xiaowu.game.starveil.game.ecs.comp.AutoHeal;
 import com.xiaowu.game.starveil.game.ecs.comp.Attributes;
 import com.xiaowu.game.starveil.game.ecs.comp.Charge;
+import com.xiaowu.game.starveil.game.ecs.comp.Gravity;
 import com.xiaowu.game.starveil.game.ecs.comp.Health;
 import com.xiaowu.game.starveil.game.ecs.comp.Magic;
 import com.xiaowu.game.starveil.game.ecs.comp.Npc;
@@ -28,6 +29,26 @@ public final class EntityFactory {
     }
 
     // ==================== 玩家 ====================
+
+    /**
+     * 按世界的玩法模式给实体挂上重力。
+     *
+     * <p><b>为什么要在这里挂</b>：重力原本只挂给玩家（见
+     * {@code GameInstance.applyGravityComponent}），于是重力图里的 NPC
+     * 一个个浮在半空不动 —— 玩家一眼就能看出不对。规则改成
+     * 「重力模式下，生成的实体会下落」，玩家、NPC、掉落物都走这一条。
+     *
+     * <p>想让某个实体飘着（漂浮物、挂在半空的装饰），生成之后把它的
+     * {@code Gravity.enabled} 置 false 即可 —— 组件在、但不受重力。
+     */
+    public static void applyGravityForMode(World world, int entity) {
+        if (world == null || entity < 0) {
+            return;
+        }
+        if (world.gameplayMode().hasGravity() && world.get(entity, Gravity.class) == null) {
+            world.add(entity, new Gravity());
+        }
+    }
 
     /**
      * 创建玩家实体（初始角色 default），视图加入世界 Pane。
@@ -60,6 +81,7 @@ public final class EntityFactory {
                 .set(Attributes.DISPLAY_NAME, "玩家")
                 .set(Attributes.PLAYER_CHARACTER, ctl.selectedCharacter);
         world.add(e, attrs);
+        applyGravityForMode(world, e);
         return e;
     }
 
@@ -208,6 +230,7 @@ public final class EntityFactory {
                 .set(Attributes.NPC_ALGORITHM, npc.algorithm.name());
         world.add(e, attrs);
         pane.getChildren().add(spr.view);
+        applyGravityForMode(world, e);
 
         // guide steps
         if (def.has("move") && def.get("move").isJsonArray()) {

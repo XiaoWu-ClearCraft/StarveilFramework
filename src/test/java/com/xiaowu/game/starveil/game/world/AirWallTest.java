@@ -21,13 +21,13 @@ class AirWallTest {
     /** 一个 100×100 的正方形，左上角在 (0,0)。 */
     private static AirWall square() {
         return AirWall.fromJson(JsonParser.parseString(
-                "{ \"polygon\": [[0,0],[100,0],[100,100],[0,100]] }").getAsJsonObject(), false);
+                "{ \"polygon\": [[0,0],[100,0],[100,100],[0,100]] }").getAsJsonObject());
     }
 
     /** 直角三角形：(0,0) (100,0) (0,100) —— 斜边从 (100,0) 到 (0,100)。 */
     private static AirWall triangle() {
         return AirWall.fromJson(JsonParser.parseString(
-                "{ \"polygon\": [[0,0],[100,0],[0,100]] }").getAsJsonObject(), false);
+                "{ \"polygon\": [[0,0],[100,0],[0,100]] }").getAsJsonObject());
     }
 
     // ==================== 解析 ====================
@@ -35,7 +35,7 @@ class AirWallTest {
     @Test
     void rectangleShorthandBecomesAPolygon() {
         AirWall wall = AirWall.fromJson(JsonParser.parseString(
-                "{ \"x\": 0, \"y\": 860, \"x_to\": 450, \"y_to\": 884 }").getAsJsonObject(), false);
+                "{ \"x\": 0, \"y\": 860, \"x_to\": 450, \"y_to\": 884 }").getAsJsonObject());
         assertNotNull(wall);
         assertTrue(wall instanceof AirWall.Poly, "老写法应当被解析成多边形");
         // 矩形的行为与以前一致
@@ -47,7 +47,7 @@ class AirWallTest {
     void rectanglesStillNormaliseReversedCorners() {
         // 反向书写曾静默退化成 1px 宽的线（wu-home.json 的斜墙踩过这个坑）
         AirWall wall = AirWall.fromJson(JsonParser.parseString(
-                "{ \"x\": 599, \"y\": 810, \"x_to\": 834, \"y_to\": 736 }").getAsJsonObject(), false);
+                "{ \"x\": 599, \"y\": 810, \"x_to\": 834, \"y_to\": 736 }").getAsJsonObject());
         assertNotNull(wall);
         assertTrue(wall.intersects(700, 780, 48, 64), "反向书写的矩形仍然要挡住");
     }
@@ -55,22 +55,27 @@ class AirWallTest {
     @Test
     void malformedFallsBackToNull() {
         assertNull(AirWall.fromJson(JsonParser.parseString(
-                "{ \"polygon\": [[0,0],[10,0]] }").getAsJsonObject(), false),
+                "{ \"polygon\": [[0,0],[10,0]] }").getAsJsonObject()),
                 "顶点不足 3 个要拒绝");
         assertNull(AirWall.fromJson(JsonParser.parseString(
-                "{ \"polygon\": [[0,0],[10,\"x\"],[10,10]] }").getAsJsonObject(), false),
+                "{ \"polygon\": [[0,0],[10,\"x\"],[10,10]] }").getAsJsonObject()),
                 "顶点不是 [x,y] 要拒绝");
+    }
+
+    /**
+     * 圆形已经不再支持 —— 但必须<b>明确拒绝并告警</b>，不能静默忽略：
+     * 静默忽略意味着老地图少一块碰撞，玩起来就是「这里怎么掉下去了」。
+     */
+    @Test
+    void circleIsRejectedLoudly() {
         assertNull(AirWall.fromJson(JsonParser.parseString(
-                "{ \"circle\": { \"x\": 1, \"y\": 2 } }").getAsJsonObject(), false),
-                "圆缺 r 要拒绝");
-        assertNull(AirWall.fromJson(JsonParser.parseString(
-                "{ \"circle\": { \"x\": 1, \"y\": 2, \"r\": 0 } }").getAsJsonObject(), false),
-                "半径必须为正");
+                "{ \"circle\": { \"x\": 100, \"y\": 100, \"r\": 50 } }").getAsJsonObject()),
+                "circle 写法应当被拒绝（多边形可以近似圆）");
     }
 
     @Test
     void nullForEmptyInput() {
-        assertNull(AirWall.fromJson(null, false));
+        assertNull(AirWall.fromJson(null));
     }
 
     // ==================== 多边形相交 ====================
@@ -103,7 +108,7 @@ class AirWallTest {
     void thinSlopeCrossingTheBoxIsBlocked() {
         // 一条从 (0,50) 到 (200,60) 的极扁三角形
         AirWall wall = AirWall.fromJson(JsonParser.parseString(
-                "{ \"polygon\": [[0,50],[200,60],[0,60]] }").getAsJsonObject(), false);
+                "{ \"polygon\": [[0,50],[200,60],[0,60]] }").getAsJsonObject());
         // 盒在 x=100 附近、y 从 40 到 120：四个角都在三角形外，但斜边穿过它
         assertTrue(wall.intersects(100, 40, 10, 80),
                 "斜边穿过包围盒时也必须算挡住（只判顶点会漏）");
@@ -130,28 +135,31 @@ class AirWallTest {
         // 一个 U 形（凹多边形）：中间那道凹口不该挡人
         AirWall wall = AirWall.fromJson(JsonParser.parseString(
                 "{ \"polygon\": [[0,0],[100,0],[100,100],[70,100],[70,30],[30,30],[30,100],[0,100]] }")
-                .getAsJsonObject(), false);
+                .getAsJsonObject());
         assertNotNull(wall);
         assertTrue(wall.intersects(0, 0, 20, 20), "左侧实心部分要挡");
         assertTrue(wall.intersects(80, 0, 20, 20), "右侧实心部分要挡");
         assertFalse(wall.intersects(40, 60, 20, 20), "凹口内部不该被挡");
     }
 
-    // ==================== 圆形 ====================
+    // ==================== 用多边形近似圆 ====================
 
+    /**
+     * 「圆被删掉了」不等于「画不出圆」—— 多边形近似一个圆是几行顶点的事，
+     * 而判定仍然是同一条代码路径（真实几何，不是外接矩形）。
+     */
     @Test
-    void circleUsesDistanceNotBoundingBox() {
+    void polygonCanApproximateACircle() {
+        // 正八边形，外接圆半径 50，圆心 (100,100)
         AirWall wall = AirWall.fromJson(JsonParser.parseString(
-                "{ \"circle\": { \"x\": 100, \"y\": 100, \"r\": 50 } }").getAsJsonObject(), false);
+                "{ \"polygon\": [[150,100],[135.36,135.36],[100,150],[64.64,135.36],"
+                        + "[50,100],[64.64,64.64],[100,50],[135.36,64.64]] }").getAsJsonObject());
         assertNotNull(wall);
-
-        // 圆心正上方的盒：贴到圆的顶部才该挡
-        assertTrue(wall.intersects(90, 60, 20, 20), "盒压到圆上要挡");
-        assertFalse(wall.intersects(90, 0, 20, 20), "圆上方够远的盒不该挡");
-
-        // 外接矩形的四个角（距离圆心约 70px > 50）不该被挡 —— 又一次是「真实形状」的价值
-        assertFalse(wall.intersects(40, 40, 10, 10),
-                "外接矩形左上角在圆外，不该被挡");
+        // 顶点正上方：贴到边才挡
+        assertTrue(wall.intersects(90, 45, 20, 20), "压到八边形上边要挡");
+        assertFalse(wall.intersects(90, 0, 20, 20), "离得远的盒不该挡");
+        // 外接矩形的角（在八边形之外）不该被挡 —— 这条和圆形版本的价值一样
+        assertFalse(wall.intersects(45, 45, 8, 8), "外接矩形的角在八边形外，不该被挡");
     }
 
     // ==================== 大小写一致的接口 ====================

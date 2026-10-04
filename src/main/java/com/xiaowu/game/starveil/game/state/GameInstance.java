@@ -334,18 +334,27 @@ public class GameInstance {
         return ecsWorld != null ? ecsWorld.gravityAngleDegrees() : 0;
     }
 
+    /**
+     * 让世界里的实体符合当前玩法模式的重力约定。
+     *
+     * <p>规则只有一条：<b>重力模式下，带位置（{@code Transform}）的实体都受重力</b>。
+     * 所以这里遍历的是全部实体，而不是只给玩家挂 —— 只挂玩家的话，
+     * 重力图里的 NPC 会浮在半空，玩家一眼就能看出不对。
+     *
+     * <p>切换到无重力模式时把 {@code Gravity} 摘掉，避免残留组件在
+     * {@code NORMAL} 下继续生效。想飘着的实体自己把 {@code enabled} 置 false。
+     */
     private void applyGravityComponent(com.xiaowu.game.starveil.game.world.GameplayMode mode) {
-        if (ecsWorld == null || playerEntity < 0) {
+        if (ecsWorld == null) {
             return;
         }
-        if (mode.hasGravity()) {
-            if (ecsWorld.get(playerEntity,
-                    com.xiaowu.game.starveil.game.ecs.comp.Gravity.class) == null) {
-                ecsWorld.add(playerEntity, new com.xiaowu.game.starveil.game.ecs.comp.Gravity());
+        for (int e : ecsWorld.view(com.xiaowu.game.starveil.game.ecs.comp.Transform.class)) {
+            if (mode.hasGravity()) {
+                com.xiaowu.game.starveil.game.ecs.factory.EntityFactory
+                        .applyGravityForMode(ecsWorld, e);
+            } else {
+                ecsWorld.remove(e, com.xiaowu.game.starveil.game.ecs.comp.Gravity.class);
             }
-        } else {
-            ecsWorld.remove(playerEntity,
-                    com.xiaowu.game.starveil.game.ecs.comp.Gravity.class);
         }
     }
 

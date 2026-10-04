@@ -26,14 +26,14 @@ class AirWallOneWayTest {
     private static AirWall platform() {
         return AirWall.fromJson(JsonParser.parseString(
                 "{ \"x\": 0, \"y\": 100, \"x_to\": 200, \"y_to\": 120, \"oneWay\": true }")
-                .getAsJsonObject(), false);
+                .getAsJsonObject());
     }
 
     /** 同样几何、但没标 oneWay 的实心墙。 */
     private static AirWall solid() {
         return AirWall.fromJson(JsonParser.parseString(
                 "{ \"x\": 0, \"y\": 100, \"x_to\": 200, \"y_to\": 120 }")
-                .getAsJsonObject(), false);
+                .getAsJsonObject());
     }
 
     /** 玩家尺寸：20×20。 */
@@ -65,31 +65,40 @@ class AirWallOneWayTest {
     void oneWayFalseIsJustASolidWall() {
         AirWall wall = AirWall.fromJson(JsonParser.parseString(
                 "{ \"x\": 0, \"y\": 100, \"x_to\": 200, \"y_to\": 120, \"oneWay\": false }")
-                .getAsJsonObject(), false);
+                .getAsJsonObject());
         assertNotNull(wall);
         assertFalse(wall.oneWay());
     }
 
     /**
-     * 圆形没有水平台面，包成单向就成了「永不阻挡的装饰」——
-     * 与其静默失效，不如忽略这个字段并保留实心行为。
+     * 单向语意只对<b>水平台面</b>成立，而台面高度取「最高顶点」。
+     * 斜着标 oneWay 会得到一条悬空的判定线 —— 这是文档里明确不支持的写法，
+     * 这里把它的实际行为钉住（不是崩溃，只是接不住人），免得以后误以为能用。
      */
     @Test
-    void oneWayOnACircleIsIgnored() {
+    void oneWayOnASlopeIsNotSupportedButDoesNotCrash() {
+        // 从 (0,700) 斜到 (200,600) 的一条斜面
         AirWall wall = AirWall.fromJson(JsonParser.parseString(
-                "{ \"circle\": { \"x\": 100, \"y\": 100, \"r\": 50 }, \"oneWay\": true }")
-                .getAsJsonObject(), false);
+                "{ \"polygon\": [[0,700],[200,600],[200,700]], \"oneWay\": true }")
+                .getAsJsonObject());
         assertNotNull(wall);
-        assertFalse(wall.oneWay(), "圆没有台面，不该被判成单向平台");
-        assertNull(wall.surfaceTop());
-        assertTrue(wall.intersects(90, 90, W, H), "仍然要当实心圆挡人");
+        assertTrue(wall.oneWay());
+        // 台面被当成最高顶点 y=600，所以只有脚底在 600 以上才会被接住
+        assertEquals(600.0, wall.surfaceTop(), 1e-9);
+        // 脚底在最高顶点之上：仍然会挡（这个盒子确实压在斜面右上角上）
+        assertTrue(wall.blocksFall(600, 180, 620, W, H),
+                "脚底在最高顶点之上时仍然会挡");
+        // 脚底已经低于最高顶点（例如走在斜面中段）：放行 —— 于是直接穿过斜面掉下去。
+        // 这就是「斜面不要标 oneWay」的原因，这里把行为钉住而不是假装支持。
+        assertFalse(wall.blocksFall(700, 180, 620, W, H),
+                "脚底低于最高顶点就放行：斜面上标 oneWay 会直接穿下去");
     }
 
     @Test
     void nonBooleanOneWayIsIgnored() {
         AirWall wall = AirWall.fromJson(JsonParser.parseString(
                 "{ \"x\": 0, \"y\": 100, \"x_to\": 200, \"y_to\": 120, \"oneWay\": \"yes\" }")
-                .getAsJsonObject(), false);
+                .getAsJsonObject());
         assertNotNull(wall);
         assertFalse(wall.oneWay(), "不是布尔值就当没写");
     }
