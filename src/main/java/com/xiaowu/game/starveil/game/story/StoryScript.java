@@ -3,6 +3,8 @@ package com.xiaowu.game.starveil.game.story;
 import com.xiaowu.game.starveil.config.GameConstants;
 import com.xiaowu.game.starveil.game.quest.QuestManager;
 import com.xiaowu.game.starveil.game.world.MapManager;
+import com.xiaowu.game.starveil.infrastructure.persistence.DataKey;
+import com.xiaowu.game.starveil.infrastructure.persistence.DataKeyRegistry;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
 import com.xiaowu.game.starveil.infrastructure.persistence.SaveDataManager;
 import com.xiaowu.game.starveil.platform.api.SystemManagerFactory;
@@ -437,54 +439,159 @@ public final class StoryScript {
     }
 
     // ==================== 状态存取 ====================
+    //
+    // 这一组键都必须【先注册】。以前未注册的键只会打一条 WARNING、
+    // 读到默认值、写入被忽略 —— 于是分支永远不成立、flag 永远存不下来，
+    // 而脚本表面上看不出任何问题（「幽灵 bug」）。
+    // 现在未注册直接抛异常，并在消息里点出最可能的写法错误。
 
     /** 读取存档内的剧情变量。 */
     public String flag(String key) {
-        return SaveDataManager.getInstance().getString(key, null);
+        return SaveDataManager.getInstance().getString(requireStoryKey(key, "读取"), null);
     }
 
     public boolean bool(String key, boolean defaultValue) {
-        return SaveDataManager.getInstance().getBoolean(key, defaultValue);
+        return SaveDataManager.getInstance()
+                .getBoolean(requireStoryKey(key, "读取"), defaultValue);
     }
 
     public int counter(String key) {
-        return SaveDataManager.getInstance().getInt(key, 0);
+        return SaveDataManager.getInstance().getInt(requireStoryKey(key, "读取"), 0);
     }
 
     /** 写入存档变量（随存档保存）。 */
     public StoryScript set(String key, String value) {
-        step("set", key, "=", value);
-        SaveDataManager.getInstance().setString(key, value);
+        String k = requireStoryKey(key, "写入");
+        step("set", k, "=", value);
+        SaveDataManager.getInstance().setString(k, value);
         return this;
     }
 
     public StoryScript setFlag(String key, boolean value) {
-        step("setFlag", key, "=", value);
-        SaveDataManager.getInstance().setBoolean(key, value);
+        String k = requireStoryKey(key, "写入");
+        step("setFlag", k, "=", value);
+        SaveDataManager.getInstance().setBoolean(k, value);
         return this;
     }
 
     public StoryScript setCounter(String key, int value) {
-        step("setCounter", key, "=", value);
-        SaveDataManager.getInstance().setInt(key, value);
+        String k = requireStoryKey(key, "写入");
+        step("setCounter", k, "=", value);
+        SaveDataManager.getInstance().setInt(k, value);
         return this;
     }
 
     public StoryScript addCounter(String key, int delta) {
-        step("addCounter", key, "+", delta);
-        SaveDataManager.getInstance().incrementInt(key, delta);
+        String k = requireStoryKey(key, "写入");
+        step("addCounter", k, "+", delta);
+        SaveDataManager.getInstance().incrementInt(k, delta);
         return this;
+    }
+
+    // ==================== 状态存取（用注册好的键） ====================
+    //
+    // 上面那组是字符串键，写错了只有运行时才知道；下面这组直接收 DataKey，
+    // 命名空间与类型都由声明处保证 —— 新写的剧情优先用这组。
+
+    /** 读取计数器（未设置过时是声明处的默认值）。 */
+    public int counter(DataKey<Integer> key) {
+        return requireStoryKey(key).getInt();
+    }
+
+    public StoryScript setCounter(DataKey<Integer> key, int value) {
+        return setCounter(requireStoryKey(key).qualified(), value);
+    }
+
+    public StoryScript addCounter(DataKey<Integer> key, int delta) {
+        return addCounter(requireStoryKey(key).qualified(), delta);
+    }
+
+    /** 读取布尔状态（未设置过时是声明处的默认值）。 */
+    public boolean bool(DataKey<Boolean> key) {
+        return requireStoryKey(key).getBool();
+    }
+
+    public StoryScript setFlag(DataKey<Boolean> key, boolean value) {
+        return setFlag(requireStoryKey(key).qualified(), value);
+    }
+
+    /** 读取字符串状态（未设置过时是声明处的默认值）。 */
+    public String flag(DataKey<String> key) {
+        return requireStoryKey(key).get();
+    }
+
+    public StoryScript set(DataKey<String> key, String value) {
+        return set(requireStoryKey(key).qualified(), value);
+    }
+
+    /**
+     * 剧情状态键的统一校验：未注册就立刻报错。
+     *
+     * <p>为什么是抛异常而不是继续 WARNING：未注册的键<b>读到的永远是默认值</b>，
+     * 于是 {@code if (s.counter("jiwu.patience") >= 3)} 这样的分支永远不会成立，
+     * 而脚本本身没有任何异常表现 —— 作者只能靠猜。抛异常把「静默失效」
+     * 换成「章节一开就告诉你哪个键没注册」，顺带在消息里给出该注册成什么。
+     *
+     * @return 去掉首尾空白的键，方便调用方直接用
+     */
+    private static String requireStoryKey(String key, String action) {
+        String trimmed = key == null ? null : key.trim();
+        if (trimmed == null || DataKeyRegistry.lookup(trimmed) == null) {
+            throw new StoryScriptException(describeUnregisteredKey(key, action));
+        }
+        return trimmed;
+    }
+
+    /**
+     * 收 {@code DataKey} 的重载共用的校验：只挡「传了 null」这一种情况。
+     *
+     * <p>键本身是注册出来的，命名空间与类型不可能写错；会出问题的只有
+     * 「常量类还没初始化 / 直接传了 null」。
+     */
+    private static <T> DataKey<T> requireStoryKey(DataKey<T> key) {
+        if (key == null) {
+            throw new StoryScriptException(
+                    "剧情状态键不能为 null —— 是不是把声明键的那一步漏掉了？");
+        }
+        return key;
+    }
+
+    /** 拼一条「哪个键没注册、正确的键大概长什么样、该怎么注册」的报错信息。 */
+    private static String describeUnregisteredKey(String key, String action) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("剧情状态键 '").append(key).append("' 未注册，无法").append(action)
+                .append("。未注册的键读到的永远是默认值、写入会被忽略 —— ")
+                .append("条件分支会静默失效、flag 也存不下来。");
+        if (key != null && key.indexOf('.') >= 0 && key.indexOf(':') < 0) {
+            // 最常见的写错方式：命名空间分隔符写成了点号
+            sb.append(" 命名空间分隔符是冒号 ':'（不是点号），看起来你想写的是 '")
+                    .append(key.trim().replace('.', ':')).append("'。");
+        }
+        sb.append(" 请先用 DataManager.defineInt(\"ns\", \"name\", 默认值, DataKeyFlag.PER_SAVE) ")
+                .append("声明，再用注册出来的键：s.counter(KEY) / s.addCounter(KEY, 1)")
+                .append("（也有收 DataKey 的那组重载，见 docs/story-guide.md 的存档变量一节）。");
+        return sb.toString();
     }
 
     /** 读取全局配置项（跨存档）。 */
     public String data(String key) {
-        return DataManager.getString(key, null);
+        return DataManager.getString(requireStoryKey(key, "读取"), null);
     }
 
     public StoryScript setData(String key, String value) {
-        step("setData", key, "=", value);
-        DataManager.set(key, value);
+        String k = requireStoryKey(key, "写入");
+        step("setData", k, "=", value);
+        DataManager.set(k, value);
         return this;
+    }
+
+    /** 读取全局配置项（跨存档）。 */
+    public String data(DataKey<String> key) {
+        return key.get();
+    }
+
+    public StoryScript setData(DataKey<String> key, String value) {
+        return setData(key.qualified(), value);
     }
 
     /** 玩家当前名字。 */

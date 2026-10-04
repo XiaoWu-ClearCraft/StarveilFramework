@@ -1214,10 +1214,41 @@ CHAPTER3_KILLS.set(5);
 int v = CHAPTER3_KILLS.get();   // 实际键: chapter3:kills
 ```
 
-- 未注册的键**写不进去**，读只会拿到默认值 —— 把「拼错键名」从
-  「静默丢数据」变成「日志里明确的告警」。存档变量一旦写错名字，
-  玩家只会看到进度莫名消失。
+- 未注册的键**写不进去**，读只会拿到默认值。
 - `clear()`（新游戏）清变量值但**保留键注册**：注册是模式，不是数据。
+
+##### 剧情状态键：别写成点号（这是个真踩过的坑）
+
+剧情脚本里的 `s.flag` / `s.bool` / `s.counter` / `s.set` / `s.setCounter` /
+`s.addCounter` / `s.setFlag` / `s.data` / `s.setData` 都要求键**已注册**，
+且完整键名的分隔符是**冒号**：
+
+```java
+// ✗ 点号：在框架看来是个未注册的裸键
+if (s.counter("jiwu.patience") >= 3) { ... }
+
+// ✓ 注册一次，之后用句柄
+public static final DataKey<Integer> JIWU_PATIENCE =
+        DataManager.defineInt("jiwu", "patience", 0, DataKeyFlag.PER_SAVE);
+
+if (s.counter(JIWU_PATIENCE) >= 3) { ... }
+s.addCounter(JIWU_PATIENCE, 1);
+```
+
+以前这种写法只会打一条 WARNING 然后照常跑：读到的永远是默认值、写入被丢掉，
+于是**那个分支永远不会成立**，而脚本看不出任何异常（第一章的
+「写错名字三次就放过玩家」就是这么静默失效的）。现在未注册的键会直接抛
+`StoryScriptException`，并在消息里点出该注册成什么、以及「点数写错了、
+应该是冒号」：
+
+```
+剧情状态键 'jiwu.patience' 未注册，无法读取。… 命名空间分隔符是冒号 ':'（不是点号），
+看起来你想写的是 'jiwu:patience'。 请先用 DataManager.defineInt("ns", "name", 默认值,
+DataKeyFlag.PER_SAVE) 声明，再用注册出来的键：s.counter(KEY) / s.addCounter(KEY, 1)…
+```
+
+收 `DataKey` 的那组重载是首选：命名空间与类型都由声明处保证，写不错。
+两种重载读写的是同一个变量，所以 `s.counter(KEY)` 与 `s.counter("jiwu:patience")` 等价。
 
 还有一种更省事的写法：用 `SaveKey` 值对象承载「命名空间 + 名字」两个字段。
 之所以不做成两个 `String` 参数，是因为本类已有
