@@ -75,6 +75,26 @@ public final class PlayerControlSystem implements EcsSystem {
         double[] movement = ih.getMovementVector(ctl.moveSpeed, isAccelerating, deltaTime);
         double desiredVx = deltaTime > 0 ? movement[0] / deltaTime : 0;
         double desiredVy = deltaTime > 0 ? movement[1] / deltaTime : 0;
+
+        // ── 重力模式下的跳跃 ──
+        // 跳跃键就是无重力模式的「向上 / 向下」键（默认 W / S，也就跟随按键绑定）。
+        // 这里要做两件事：
+        //   1) 只认「按下的那一瞬间」——按住不放不该连跳；
+        //   2) 一旦用它跳了，就<b>不再</b>把它当方向键用 ——
+        //      否则按住 W 会一边跳一边往上飘，等于飞行。
+        com.xiaowu.game.starveil.game.ecs.comp.Gravity gravity =
+                world.get(pe, com.xiaowu.game.starveil.game.ecs.comp.Gravity.class);
+        if (gravity != null && gravity.enabled) {
+            boolean jumpHeld = ih.isKeyPressed("MOVE_UP") || ih.isKeyPressed("MOVE_DOWN");
+            boolean freshPress = jumpHeld && !gravity.jumpKeyHeldLastFrame;
+            gravity.jumpKeyHeldLastFrame = jumpHeld;
+            if (freshPress && gravity.grounded) {
+                gravity.requestJump();
+            }
+            // 无论是否真的跳起来，重力模式下都不把这两个键当方向键（不能往上飘）
+            desiredVy = 0;
+        }
+
         boolean wantsMove = desiredVx != 0 || desiredVy != 0;
 
         boolean inertia = DataManager.isInertiaEnabled();

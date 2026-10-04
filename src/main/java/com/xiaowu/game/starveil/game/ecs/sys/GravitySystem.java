@@ -47,39 +47,73 @@ public final class GravitySystem implements EcsSystem {
             if (t == null) {
                 continue;
             }
-            fall(g, t, map, ux, uy, deltaTime);
+            step(g, t, map, ux, uy, deltaTime);
         }
     }
 
-    private static void fall(Gravity g, Transform t, WorldMap map,
+    /**
+     * 推进一个实体一帧。
+     *
+     * <p>速度是<b>带符号的</b>标量：正 = 沿重力方向（下落），负 = 逆重力方向（起跳上升）。
+     * 两种情况都只在被挡住时停下，所以「撞天花板」和「落地」是同一套逻辑。
+     */
+    private static void step(Gravity g, Transform t, WorldMap map,
                              double ux, double uy, double deltaTime) {
-        FallStep step = computeFall(g.speed, deltaTime, g.acceleration, g.maxFallSpeed,
-                distance -> map.isBlockedByAirWall(
-                        t.x + ux * distance, t.y + uy * distance, t.width, t.height));
+        // 1) 起跳：只有落地时才算数（空中按跳跃键无效，不能连跳）
+        if (g.jumpQueued) {
+            g.jumpQueued = false;
+            if (g.grounded) {
+                g.speed = -g.jumpSpeed;
+            }
+        }
 
-        if (step.landed()) {
-            // 撞到阻挡：原地停住。不贴到墙沿是因为空气墙的精确边界由地图几何决定，
-            // 玩家移动系统同样只做「原地不动」处理，两边保持一致。
+        boolean rising = g.speed < 0;
+
+        // 2) 这一帧沿重力方向要走多远（下落为正值，上升为负值）
+        double distance;
+        if (rising) {
+            distance = g.speed * deltaTime;
+            // 上升阶段用同一个加速度减速；越过 0 就自然转为下落
+            g.speed = Math.min(0, g.speed + g.acceleration * deltaTime);
+        } else {
+            FallStep fs = computeFall(g.speed, deltaTime, g.acceleration, g.maxFallSpeed,
+                    d -> map.isBlockedByAirWall(
+                            t.x + ux * d, t.y + uy * d, t.width, t.height));
+            if (fs.landed()) {
+                // 撞到阻挡：原地停住。不贴到墙沿是因为空气墙的精确边界由形状几何决定，
+                // 玩家移动系统同样只做「原地不动」处理，两边保持一致。
+                g.speed = 0;
+                g.grounded = true;
+                return;
+            }
+            g.speed = fs.speed();
+            distance = fs.distance();
+        }
+
+        double nx = t.x + ux * distance;
+        double ny = t.y + uy * distance;
+
+        // 3) 上升撞到天花板：停住并开始下落，不能继续往上顶
+        if (rising && map.isBlockedByAirWall(nx, ny, t.width, t.height)) {
             g.speed = 0;
-            g.grounded = true;
+            g.grounded = false;
             return;
         }
 
-        double nx = t.x + ux * step.distance();
-        double ny = t.y + uy * step.distance();
         if (map.isPlayerOutOfBounds(nx, ny, t.width, t.height)) {
             double[] clamped = map.clampPlayerPosition(nx, ny, t.width, t.height);
             t.x = clamped[0];
             t.y = clamped[1];
             g.speed = 0;
-            g.grounded = true;
+            // 被地图边界接住也算落地：不然在底边贴着墙会一直「下落」而无法起跳
+            g.grounded = !rising;
             return;
         }
 
         t.x = nx;
         t.y = ny;
-        g.speed = step.speed();
-        g.grounded = false;
+        // 落地 = 「沿重力方向的速度已经归零」；还在上升或下落中都不算
+        g.grounded = !rising && g.speed == 0;
     }
 
     /** 一次下落推进的结果。 */

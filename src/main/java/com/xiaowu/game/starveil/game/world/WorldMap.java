@@ -58,7 +58,13 @@ public class WorldMap {
     private int worldHeight = 3000;
     private boolean wordMarkers = false; // 是否显示世界坐标标记（可从JSON配置）
 
-    private final List<Rectangle> airWalls = new ArrayList<>();
+    private final List<AirWall> airWalls = new ArrayList<>();
+
+    /** 空气墙已经挂到 {@link #world} 上的显示节点（调试显示与卸载时要用到）。 */
+    private final List<javafx.scene.Node> airWallNodes = new ArrayList<>();
+
+    /** 空气墙是否以半透明红色显示（调试用；切地图时按当前值重建）。 */
+    private boolean showAirWallDebug = false;
     private final List<MapEvent> events = new ArrayList<>();
     private final Map<String, List<MapEventListener>> listeners = new HashMap<>();
     /** 按所有者记录的绑定关系（见 {@link #bindEvent}）。 */
@@ -412,27 +418,24 @@ public class WorldMap {
             }
         }
 
-        // 空气墙
+        // 空气墙：支持矩形（老写法）、任意多边形、圆形 —— 见 AirWall 的说明。
+        // 形状与贴图分离：贴图纯视觉，碰撞只看形状。
         if (root.has("airWall") && root.get("airWall").isJsonArray()) {
             JsonArray aw = root.getAsJsonArray("airWall");
             for (JsonElement e : aw) {
-                JsonObject o = e.getAsJsonObject();
-                int x = o.has("x") ? o.get("x").getAsInt() : 0;
-                int y = o.has("y") ? o.get("y").getAsInt() : 0;
-                int x_to = o.has("x_to") ? o.get("x_to").getAsInt() : x;
-                int y_to = o.has("y_to") ? o.get("y_to").getAsInt() : y;
-                // 归一化两个对角点：允许 (x,y) / (x_to,y_to) 以任意顺序书写。
-                // 旧写法 Math.max(1, x_to - x) 在反向书写时会静默退化成 1px 宽的线，
-                // 空气墙形同虚设（wu-home.json 的斜墙条目就踩了这个坑）。
-                // 逻辑与回归测试见 AirWallGeometry。
-                AirWallGeometry.Rect box = AirWallGeometry.of(x, y, x_to, y_to);
-                Rectangle r = new Rectangle(box.x(), box.y(), box.width(), box.height());
-                r.setFill(Color.TRANSPARENT);
-                r.setStroke(null);
-                r.setMouseTransparent(true);
-                airWalls.add(r);
-                world.getChildren().add(r);
+                if (!e.isJsonObject()) {
+                    continue;
+                }
+                AirWall wall = AirWall.fromJson(e.getAsJsonObject(), showAirWallDebug);
+                if (wall == null) {
+                    continue;
+                }
+                airWalls.add(wall);
+                javafx.scene.Node node = wall.buildNode();
+                airWallNodes.add(node);
+                world.getChildren().add(node);
             }
+            LoggerManager.Logger("DEBUG", "已加载 " + airWalls.size() + " 个空气墙形状");
         }
 
         // NPC（简单占位）
@@ -1065,23 +1068,14 @@ public class WorldMap {
         return false;
     }
 
+    /**
+     * 包围盒是否被任一空气墙挡住。
+     *
+     * <p>形状可以是矩形、任意多边形或圆形（见 {@link AirWall}），
+     * 判定逻辑在形状自己身上 —— 这里只负责遍历。
+     */
     public boolean isBlockedByAirWall(double x, double y, double w, double h) {
-        double minX = x;
-        double minY = y;
-        double maxX = x + w;
-        double maxY = y + h;
-
-        for (Rectangle r : airWalls) {
-            javafx.geometry.Bounds b = r.getBoundsInParent();
-            double ax1 = b.getMinX();
-            double ay1 = b.getMinY();
-            double ax2 = b.getMaxX();
-            double ay2 = b.getMaxY();
-
-            boolean intersects = !(ax2 <= minX || ax1 >= maxX || ay2 <= minY || ay1 >= maxY);
-            if (intersects) return true;
-        }
-        return false;
+        return AirWall.anyIntersects(airWalls, x, y, w, h);
     }
 
     /**
@@ -1094,18 +1088,44 @@ public class WorldMap {
     /**
      * 在调试模式下显示或隐藏空气墙轮廓（便于调试）
      */
+    /**
+     * 在调试模式下显示或隐藏空气墙轮廓（便于调试）。
+     *
+     * <p>形状可能是多边形或圆形，所以按 {@code Shape} 统一处理。
+     * 带贴图的那种（形状 + 贴图子节点）只改外层形状的样式，贴图保持不动 ——
+     * 所以要先从 {@link #world} 的子节点里找回真正挂上去的那些节点。
+     */
     public void showAirWalls(boolean show) {
-        for (Rectangle r : airWalls) {
+        showAirWallDebug = show;
+        if (airWallNodes.isEmpty()) {
+            return;
+        }
+        for (javafx.scene.Node node : airWallNodes) {
+            javafx.scene.shape.Shape shape = airWallShape(node);
+            if (shape == null) {
+                continue;
+            }
             if (show) {
-                r.setFill(Color.rgb(0, 255, 255, 0.12));
-                r.setStroke(Color.CYAN);
-                r.setStrokeWidth(1);
-                r.setMouseTransparent(true);
+                shape.setFill(Color.rgb(0, 255, 255, 0.12));
+                shape.setStroke(Color.CYAN);
+                shape.setStrokeWidth(1);
+                shape.setMouseTransparent(true);
             } else {
-                r.setFill(Color.TRANSPARENT);
-                r.setStroke(null);
+                shape.setFill(Color.TRANSPARENT);
+                shape.setStroke(null);
             }
         }
+    }
+
+    /** 从空气墙显示节点里取出真正的碰撞形状（带贴图时节点是个 Group）。 */
+    private static javafx.scene.shape.Shape airWallShape(javafx.scene.Node node) {
+        if (node instanceof javafx.scene.shape.Shape s) {
+            return s;
+        }
+        if (node instanceof javafx.scene.Group g && g.getUserData() instanceof javafx.scene.shape.Shape s) {
+            return s;
+        }
+        return null;
     }
 
     /**

@@ -27,6 +27,34 @@ public final class Gravity implements Component {
     /** 速度上限（像素/秒），避免一帧位移直接跳过整片墙体。 */
     public double maxFallSpeed = 1200;
 
+    // ==================== 跳跃 ====================
+
+    /**
+     * 起跳初速度（像素/秒），方向与重力相反。
+     *
+     * <p>默认值配合默认加速度算出的跳跃高度约
+     * {@code v² / (2a) = 700² / 3600 ≈ 136px} —— 略高于一个玩家身位的高度，
+     * 够上平台但不至于一跳飞天。想改手感就改它。
+     */
+    public double jumpSpeed = 700;
+
+    /**
+     * 下一次更新时是否施加起跳冲量。
+     *
+     * <p>由输入系统置位、由重力系统消费并清零 —— 这样「按一下跳一次」
+     * 与「按住不放」区分得开，而且两个系统之间不需要共享额外状态。
+     */
+    public boolean jumpQueued = false;
+
+    /**
+     * 上一帧「跳跃键是否按着」。只用于识别<b>按下的那一瞬间</b>：
+     * 没有它就只能用 {@code isKeyPressed}，按住不放会连跳。
+     *
+     * <p>公开是因为置位的是输入侧（{@code PlayerControlSystem}）、消费的是
+     * 重力侧（{@code GravitySystem}），两边不是同一个类。
+     */
+    public boolean jumpKeyHeldLastFrame = false;
+
     public Gravity() {
     }
 
@@ -35,9 +63,15 @@ public final class Gravity implements Component {
         this.maxFallSpeed = maxFallSpeed;
     }
 
+    /** 请求起跳（只有落地时才会真的生效，见 GravitySystem）。 */
+    public void requestJump() {
+        jumpQueued = true;
+    }
+
     /** 重新开始下落（例如被击飞后）。 */
     public void resetFall() {
         speed = 0;
         grounded = false;
+        jumpQueued = false;
     }
 }
