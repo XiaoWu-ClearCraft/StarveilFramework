@@ -39,17 +39,28 @@ import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logg
  *
  * // 3) 圆形
  * { "circle": { "x": 300, "y": 800, "r": 60 } }
+ *
+ * // 4) 任意一种形状都可以加 oneWay —— 变成单向平台（从下面能跳上去，上面按 S 能穿下来）
+ * { "x": 100, "y": 600, "x_to": 400, "y_to": 620, "oneWay": true }
  * </pre>
  *
  * <p>任何形状都可以带 {@code "texture": "starveil:textures/tiles/x.png"} 与
  * {@code "textureSize": 50}，把贴图平铺在形状内部（用裁剪，不会溢出到形状外）。
  * <b>贴图纯视觉，不影响碰撞</b> —— 没有贴图时形状是隐形的，
  * 这正是「空气墙」这个名字的由来。
+ *
+ * <p>加 {@code "oneWay": true} 则变成<b>单向平台</b>：只有从上面落下来才接得住，
+ * 从下面可以跳穿上去、从侧面可以走过去，站在上面按「下」还会穿下去。
+ * 详见 {@link OneWay}。
  */
 public sealed interface AirWall {
 
     /**
      * 遮挡盒（玩家/实体的轴对齐包围盒）是否与本形状相交。
+     *
+     * <p>这是<b>不带方向</b>的纯空间判据，双向都挡 —— 旧代码与
+     * 「不关心方向」的调用（NPC、剧情脚本、边界检查）继续用它。
+     * 关于单向平台的判据见 {@link #blocksFall}。
      *
      * @param x 包围盒左上角 x
      * @param y 包围盒左上角 y
@@ -57,6 +68,40 @@ public sealed interface AirWall {
      * @param h 高
      */
     boolean intersects(double x, double y, double w, double h);
+
+    /**
+     * <b>下落</b>时的阻挡判定 —— 重力与跳跃该用的就是它。
+     *
+     * <p>实心形状等同于 {@link #intersects}；单向平台多一个前提：
+     * 「开始下落之前脚底就已经在台面之上」。
+     *
+     * <p>为什么必须传<b>下落前</b>的脚底高度、而不是只看候选位置：
+     * 快速下落时一帧要走十几个像素，候选位置早就在台面内部，
+     * 光看候选位置会把「从下面往上穿」和「从上面落下来」混为一谈。
+     * 起点信息是这一整步的常量，候选位置只是它移动的终点，
+     * 两者一起才构成「从上面落到了台面上」这件事。
+     *
+     * @param startFeetY 本次下落<b>开始前</b>的脚底高度（即 {@code y + height}）
+     * @param x 候选位置的包围盒左上角 x
+     * @param y 候选位置的包围盒左上角 y
+     * @param w 宽
+     * @param h 高
+     */
+    boolean blocksFall(double startFeetY, double x, double y, double w, double h);
+
+    /**
+     * 站立面高度（脚底所在的 y）：实体落在这个高度上就算站住了。
+     *
+     * <p>多边形取<b>最高顶点</b>的 y（对矩形台面就是台面高度；斜面没有唯一的
+     * 「台面」，所以斜的单向平台不受支持）。目前只有单向平台会用到它 ——
+     * 实心空气墙的碰撞完全由 {@link #intersects} 的几何决定，不需要这个概念。
+     *
+     * @return {@code null} 表示该形状不提供站立面（例如圆形，站上去只有一个点）
+     */
+    Double surfaceTop();
+
+    /** 是否是单向平台（可从下方穿过、可按向下键落下）。 */
+    boolean oneWay();
 
     /** 用于显示与调试的 JavaFX 节点（可能包含贴图子节点）。 */
     Node buildNode();
@@ -115,6 +160,26 @@ public sealed interface AirWall {
         @Override
         public int pointCount() {
             return xs.length;
+        }
+
+        @Override
+        public boolean blocksFall(double startFeetY, double x, double y, double w, double h) {
+            return intersects(x, y, w, h);
+        }
+
+        @Override
+        public boolean oneWay() {
+            return false;
+        }
+
+        /** 顶边 y —— 也就是「站上去的脚底高度」。 */
+        @Override
+        public Double surfaceTop() {
+            double top = Double.MAX_VALUE;
+            for (double val : ys) {
+                top = Math.min(top, val);
+            }
+            return top;
         }
 
         @Override
@@ -274,6 +339,22 @@ public sealed interface AirWall {
         }
 
         @Override
+        public boolean blocksFall(double startFeetY, double x, double y, double w, double h) {
+            return intersects(x, y, w, h);
+        }
+
+        @Override
+        public boolean oneWay() {
+            return false;
+        }
+
+        /** 圆形不提供水平站立面（站上去只是一个点），返回 null。 */
+        @Override
+        public Double surfaceTop() {
+            return null;
+        }
+
+        @Override
         public boolean intersects(double x, double y, double w, double h) {
             // 找包围盒上离圆心最近的点，比较它与圆心的距离
             double nearestX = clamp(cx, x, x + w);
@@ -320,6 +401,68 @@ public sealed interface AirWall {
         }
     }
 
+    // ==================== 单向平台 ====================
+
+    /**
+     * 单向平台：把任意形状包一层「只从上面挡」的语义。
+     *
+     * <p>做成装饰器而不是给每个形状加字段，是因为「单向」与形状本身无关：
+     * 只要形状有水平台面，单向行为就完全一样（从下方可以穿过、从上方踩得住）。
+     * 包一层之后 {@link Poly} / {@link Disc} 不需要知道单向这回事。
+     *
+     * <p><b>为什么判定要看「下落前的脚底位置」</b>：
+     * 实体上升穿过台面时，某一帧它的包围盒必然与台面相交；如果只看相交就挡，
+     * 就会在穿到一半时被弹回去。所以判据必须包含「这一步是从哪边过来的」。
+     *
+     * <p>单向语义只对<b>水平台面</b>成立，台面高度取
+     * {@link #surfaceTop()}（多边形的最高顶点）。斜着写的单向平台不支持 ——
+     * 那需要按顶点法线逐个面判定，真正的平台游戏也是这么区分的。
+     */
+    record OneWay(AirWall delegate) implements AirWall {
+
+        /** 脚底与台面齐平时允许的误差：落在台面上时脚底恰好等于台面高度。 */
+        static final double SURFACE_EPSILON = 0.5;
+
+        @Override
+        public boolean intersects(double x, double y, double w, double h) {
+            return delegate.intersects(x, y, w, h);
+        }
+
+        @Override
+        public boolean blocksFall(double startFeetY, double x, double y, double w, double h) {
+            Double top = delegate.surfaceTop();
+            if (top == null) {
+                // 没有水平台面（圆形）就没有「从上面踩住」这回事，一律不挡
+                return false;
+            }
+            // 下落前脚底必须在台面之上；从下面往上穿的实体脚底在台面之下，直接放过
+            if (startFeetY > top + SURFACE_EPSILON) {
+                return false;
+            }
+            return delegate.intersects(x, y, w, h);
+        }
+
+        @Override
+        public Double surfaceTop() {
+            return delegate.surfaceTop();
+        }
+
+        @Override
+        public boolean oneWay() {
+            return true;
+        }
+
+        @Override
+        public Node buildNode() {
+            return delegate.buildNode();
+        }
+
+        @Override
+        public int pointCount() {
+            return delegate.pointCount();
+        }
+    }
+
     // ==================== 解析 ====================
 
     /**
@@ -327,8 +470,39 @@ public sealed interface AirWall {
      *
      * <p>三种写法按优先级：{@code polygon} &gt; {@code circle} &gt; {@code x/y/x_to/y_to}。
      * 都不合法时返回 {@code null}（调用方跳过并记录）。
+     *
+     * <p>可附加 {@code "oneWay": true} 变成单向平台（见 {@link OneWay}）。
      */
     static AirWall fromJson(JsonObject o, boolean debugFill) {
+        AirWall shape = parseShape(o, debugFill);
+        if (shape == null) {
+            return null;
+        }
+        if (!isOneWayRequested(o)) {
+            return shape;
+        }
+        // 单向判定依赖「台面高度」，而圆没有水平台面（surfaceTop() 返回 null）。
+        // 若直接把圆包成单向，它会变成一块永不阻挡的装饰 —— 与其静默失效，不如忽略并告警。
+        if (shape.surfaceTop() == null) {
+            Logger("WARNING", "空气墙 oneWay 只对水平台面有意义，圆形会永不阻挡，已按普通空气墙处理");
+            return shape;
+        }
+        return new OneWay(shape);
+    }
+
+    private static boolean isOneWayRequested(JsonObject o) {
+        if (o == null || !o.has("oneWay") || !o.get("oneWay").isJsonPrimitive()) {
+            return false;
+        }
+        try {
+            return o.get("oneWay").getAsBoolean();
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            Logger("WARNING", "空气墙 oneWay 需要布尔值，已忽略该字段");
+            return false;
+        }
+    }
+
+    private static AirWall parseShape(JsonObject o, boolean debugFill) {
         if (o == null) {
             return null;
         }
@@ -382,6 +556,65 @@ public sealed interface AirWall {
         }
         for (AirWall wall : walls) {
             if (wall.intersects(x, y, w, h)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 横向 / 上升移动的批量判定：单向平台<b>一律不挡</b>。
+     *
+     * <p>这就是「能贴着单向平台侧面走过去」以及「能从下面跳上去」——
+     * 单向平台只在落下时接住你，其余方向它等于不存在。
+     */
+    static boolean anyBlocksSideways(List<AirWall> walls, double x, double y, double w, double h) {
+        if (walls == null || walls.isEmpty()) {
+            return false;
+        }
+        for (AirWall wall : walls) {
+            if (!wall.oneWay() && wall.intersects(x, y, w, h)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 下落的批量判定（带方向的判据，重力与跳跃都走这条路）。
+     *
+     * @param startFeetY 本次下落开始前的脚底高度
+     * @param passOneWay 是否处于「按向下键穿下去」的窗口，为 true 时完全忽略单向平台
+     */
+    static boolean anyBlocksFall(List<AirWall> walls, double startFeetY,
+                                 double x, double y, double w, double h, boolean passOneWay) {
+        if (walls == null || walls.isEmpty()) {
+            return false;
+        }
+        for (AirWall wall : walls) {
+            if (passOneWay && wall.oneWay()) {
+                continue;
+            }
+            if (wall.blocksFall(startFeetY, x, y, w, h)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 脚下是否踩着单向平台（用于判断按「下」能不能穿下去）。
+     *
+     * <p>做法是在脚底往下探一小段（{@code probe} 像素）再看有没有单向平台。
+     * 站立时脚底正好贴在台面上，所以这个探测框一定与台面重叠。
+     */
+    static boolean anyOneWayBelow(List<AirWall> walls, double x, double y, double w, double h,
+                                  double probe) {
+        if (walls == null || walls.isEmpty()) {
+            return false;
+        }
+        for (AirWall wall : walls) {
+            if (wall.oneWay() && wall.intersects(x, y + h, w, probe)) {
                 return true;
             }
         }

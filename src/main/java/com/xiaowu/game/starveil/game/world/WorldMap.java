@@ -1073,9 +1073,44 @@ public class WorldMap {
      *
      * <p>形状可以是矩形、任意多边形或圆形（见 {@link AirWall}），
      * 判定逻辑在形状自己身上 —— 这里只负责遍历。
+     *
+     * <p>这是<b>不分方向</b>的判据，单向平台在这里等同于普通空气墙。
+     * 玩家/实体的移动请按方向分别用 {@link #isBlockedSideways} 与
+     * {@link #isBlockedFalling}，否则单向平台会连侧面都挡住。
      */
     public boolean isBlockedByAirWall(double x, double y, double w, double h) {
         return AirWall.anyIntersects(airWalls, x, y, w, h);
+    }
+
+    /**
+     * 横向或向上移动时的阻挡判定：单向平台一律不挡。
+     *
+     * <p>「从下面跳上去」与「贴着台面侧面走过去」都靠这一条 ——
+     * 单向平台只在往下落时接住你。
+     */
+    public boolean isBlockedSideways(double x, double y, double w, double h) {
+        return AirWall.anyBlocksSideways(airWalls, x, y, w, h);
+    }
+
+    /**
+     * 下落时的阻挡判定：单向平台只在「下落前脚底已在台面之上」时才挡。
+     *
+     * @param startFeetY  本次下落<b>开始前</b>的脚底高度（{@code y + height}）
+     * @param passOneWay  是否处于「按向下键穿下去」的窗口；为 true 时完全忽略单向平台
+     */
+    public boolean isBlockedFalling(double startFeetY, double x, double y, double w, double h,
+                                    boolean passOneWay) {
+        return AirWall.anyBlocksFall(airWalls, startFeetY, x, y, w, h, passOneWay);
+    }
+
+    /**
+     * 脚底是否正踩着单向平台 —— 决定按「下」是穿下去还是什么都不做。
+     *
+     * <p>探测框从脚底往下探 2px：站立时脚底正好贴在台面上，
+     * 这个薄片一定与台面重叠，所以不需要知道台面的精确高度。
+     */
+    public boolean isStandingOnOneWay(double x, double y, double w, double h) {
+        return AirWall.anyOneWayBelow(airWalls, x, y, w, h, 2);
     }
 
     /**

@@ -19,6 +19,18 @@ import java.util.function.DoublePredicate;
  *
  * <p>重力方向由 {@link World#gravityAngleDegrees()} 提供，可以是任意角度
  * （0° 向下，顺时针为正）。
+ *
+ * <h2>手感三件套</h2>
+ * <ul>
+ *   <li><b>土狼时间</b>（{@link Gravity#coyoteTime}）：刚走出平台边缘的一小段时间里
+ *       仍然允许起跳，避免「明明按了却没跳」；</li>
+ *   <li><b>跳跃缓冲</b>（{@link Gravity#jumpBuffer}）：落地前提前按下的跳跃键会被记住，
+ *       落地那一帧立刻起跳；</li>
+ *   <li><b>单向平台</b>：只在下落方向接住实体，按「下」还能穿下去。
+ *       判据的几何部分在 {@link com.xiaowu.game.starveil.game.world.AirWall} 上。</li>
+ * </ul>
+ * 计时器统一在 {@link Gravity#tickTimers} 里推进，判定则在 {@link #step} 开头，
+ * 所以「按下的那一瞬间」与「能不能跳」是全系统唯一的一份实现。
  */
 public final class GravitySystem implements EcsSystem {
 
@@ -36,6 +48,7 @@ public final class GravitySystem implements EcsSystem {
         double[] dir = directionVector(angle);
         double ux = dir[0];
         double uy = dir[1];
+        boolean vertical = isVertical(ux, uy);
 
         int[] entities = world.view(Transform.class);
         for (int e : entities) {
@@ -47,8 +60,18 @@ public final class GravitySystem implements EcsSystem {
             if (t == null) {
                 continue;
             }
-            step(g, t, map, ux, uy, deltaTime);
+            step(g, t, map, ux, uy, deltaTime, vertical);
         }
+    }
+
+    /**
+     * 重力方向是否竖直向下（0°）。
+     *
+     * <p>只有这种情形下「水平台面」才有意义，单向平台也才成立；
+     * 侧向重力下单向平台退化成普通空气墙，见 {@link #blockedFalling}。
+     */
+    private static boolean isVertical(double ux, double uy) {
+        return Math.abs(ux) < 1e-9 && uy > 0;
     }
 
     /**
@@ -58,13 +81,14 @@ public final class GravitySystem implements EcsSystem {
      * 两种情况都只在被挡住时停下，所以「撞天花板」和「落地」是同一套逻辑。
      */
     private static void step(Gravity g, Transform t, WorldMap map,
-                             double ux, double uy, double deltaTime) {
-        // 1) 起跳：只有落地时才算数（空中按跳跃键无效，不能连跳）
-        if (g.jumpQueued) {
-            g.jumpQueued = false;
-            if (g.grounded) {
-                g.speed = -g.jumpSpeed;
-            }
+                             double ux, double uy, double deltaTime, boolean vertical) {
+        // 0) 计时器先行：土狼时间、跳跃缓冲、向下穿越窗口都靠它们计量。
+        //    必须在判定跳跃之前推进 —— 判据要读的是「到这一刻为止过了多久」。
+        g.tickTimers(deltaTime);
+
+        // 1) 起跳：缓冲里有一次按下 + 现在跳得起来（落地或还在土狼时间内）
+        if (consumeJump(g)) {
+            g.speed = -g.jumpSpeed;
         }
 
         boolean rising = g.speed < 0;
@@ -76,8 +100,12 @@ public final class GravitySystem implements EcsSystem {
             // 上升阶段用同一个加速度减速；越过 0 就自然转为下落
             g.speed = Math.min(0, g.speed + g.acceleration * deltaTime);
         } else {
+            // 下落判据需要「开始下落前的脚底高度」：它是这一整步的常量，
+            // 用来区分「从上面落到台面上」与「从下面穿上来」
+            double startFeetY = t.y + t.height;
+            boolean passOneWay = g.isDroppingThrough();
             FallStep fs = computeFall(g.speed, deltaTime, g.acceleration, g.maxFallSpeed,
-                    d -> map.isBlockedByAirWall(
+                    d -> blockedFalling(map, vertical, passOneWay, startFeetY,
                             t.x + ux * d, t.y + uy * d, t.width, t.height));
             if (fs.landed()) {
                 // 撞到阻挡：原地停住。不贴到墙沿是因为空气墙的精确边界由形状几何决定，
@@ -94,7 +122,7 @@ public final class GravitySystem implements EcsSystem {
         double ny = t.y + uy * distance;
 
         // 3) 上升撞到天花板：停住并开始下落，不能继续往上顶
-        if (rising && map.isBlockedByAirWall(nx, ny, t.width, t.height)) {
+        if (rising && blockedRising(map, vertical, nx, ny, t.width, t.height)) {
             g.speed = 0;
             g.grounded = false;
             return;
@@ -114,6 +142,49 @@ public final class GravitySystem implements EcsSystem {
         t.y = ny;
         // 落地 = 「沿重力方向的速度已经归零」；还在上升或下落中都不算
         g.grounded = !rising && g.speed == 0;
+    }
+
+    /**
+     * 这一帧要不要起跳 —— 手感三件套里「跳跃缓冲 + 土狼时间」的唯一实现。
+     *
+     * <p>抽出来是因为它是纯粹的「状态 → 决定」，不碰地图也不碰 JavaFX，
+     * 可以脱离整张地图直接测；留在 {@link #step} 里就只能靠跑游戏来验证。
+     *
+     * <p>无论跳没跳成，待处理的起跳请求都会被消费掉 —— 一次按键只对应一次机会。
+     */
+    static boolean consumeJump(Gravity g) {
+        boolean wantsJump = g.jumpQueued || g.timeSinceJumpPress <= g.jumpBuffer;
+        g.jumpQueued = false;
+        if (wantsJump && g.canJump()) {
+            // 缓冲与土狼窗口一起作废，否则起跳后的头几帧会再放行一次（二段跳）
+            g.consumeJumpWindow();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 下落是否被挡住（含单向平台的完整语义）。
+     *
+     * <p>非竖直重力下「水平台面」没有意义，单向平台退回成普通空气墙 ——
+     * 漏过去比莫名其妙挡住更糟（玩家会直接掉出地图）。
+     */
+    private static boolean blockedFalling(WorldMap map, boolean vertical, boolean passOneWay,
+                                          double startFeetY,
+                                          double x, double y, double w, double h) {
+        if (!vertical) {
+            return map.isBlockedByAirWall(x, y, w, h);
+        }
+        return map.isBlockedFalling(startFeetY, x, y, w, h, passOneWay);
+    }
+
+    /** 上升/横向是否被挡住：竖直重力下单向平台不挡（能从下方穿过）。 */
+    private static boolean blockedRising(WorldMap map, boolean vertical,
+                                         double x, double y, double w, double h) {
+        if (!vertical) {
+            return map.isBlockedByAirWall(x, y, w, h);
+        }
+        return map.isBlockedSideways(x, y, w, h);
     }
 
     /** 一次下落推进的结果。 */

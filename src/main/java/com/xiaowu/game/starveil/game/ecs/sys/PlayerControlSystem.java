@@ -76,22 +76,32 @@ public final class PlayerControlSystem implements EcsSystem {
         double desiredVx = deltaTime > 0 ? movement[0] / deltaTime : 0;
         double desiredVy = deltaTime > 0 ? movement[1] / deltaTime : 0;
 
-        // ── 重力模式下的跳跃 ──
-        // 跳跃键就是无重力模式的「向上 / 向下」键（默认 W / S，也就跟随按键绑定）。
-        // 这里要做两件事：
-        //   1) 只认「按下的那一瞬间」——按住不放不该连跳；
-        //   2) 一旦用它跳了，就<b>不再</b>把它当方向键用 ——
-        //      否则按住 W 会一边跳一边往上飘，等于飞行。
+        // ── 重力模式下的跳跃与「向下穿」──
+        // 按键约定：W（MOVE_UP）= 跳；S（MOVE_DOWN）= 从单向平台上跳下去。
+        // 分工要清楚：这里只负责「把按下的瞬间翻译成意图」，
+        // 「现在到底能不能跳」由重力系统按土狼时间判定 —— 输入侧不该复刻一遍物理判据。
+        //
+        // 另外，重力模式下这两个键都不再是方向键（desiredVy 归零），
+        // 否则按住 W 会一边跳一边往上飘，等于飞行。
         com.xiaowu.game.starveil.game.ecs.comp.Gravity gravity =
                 world.get(pe, com.xiaowu.game.starveil.game.ecs.comp.Gravity.class);
         if (gravity != null && gravity.enabled) {
-            boolean jumpHeld = ih.isKeyPressed("MOVE_UP") || ih.isKeyPressed("MOVE_DOWN");
-            boolean freshPress = jumpHeld && !gravity.jumpKeyHeldLastFrame;
-            gravity.jumpKeyHeldLastFrame = jumpHeld;
-            if (freshPress && gravity.grounded) {
-                gravity.requestJump();
+            boolean upHeld = ih.isKeyPressed("MOVE_UP");
+            if (upHeld && !gravity.jumpKeyHeldLastFrame) {
+                gravity.pressJumpKey();
             }
-            // 无论是否真的跳起来，重力模式下都不把这两个键当方向键（不能往上飘）
+            gravity.jumpKeyHeldLastFrame = upHeld;
+
+            boolean downHeld = ih.isKeyPressed("MOVE_DOWN");
+            if (downHeld && !gravity.downKeyHeldLastFrame
+                    && gravity.grounded
+                    && map.isStandingOnOneWay(t.x, t.y, t.width, t.height)) {
+                // 只有脚下真的踩着单向平台才穿下去；
+                // 站在实心地面上按「下」什么都不该发生（不然会莫名其妙掉进地里）
+                gravity.startDropThrough();
+            }
+            gravity.downKeyHeldLastFrame = downHeld;
+
             desiredVy = 0;
         }
 
@@ -104,7 +114,7 @@ public final class PlayerControlSystem implements EcsSystem {
         double deltaX = ctl.velocityX * deltaTime;
         double deltaY = ctl.velocityY * deltaTime;
         if (deltaX != 0 || deltaY != 0) {
-            movePlayer(t, spr, deltaX, deltaY, map);
+            movePlayer(t, spr, deltaX, deltaY, map, gravity);
         }
         // 是否算「在移动」按实际速度判定，而不是按有没有按键 ——
         // 否则惯性滑行期间会错误地显示待机姿态。
@@ -206,20 +216,52 @@ public final class PlayerControlSystem implements EcsSystem {
 
     /**
      * 移植自 Player.move：X/Y 轴分离的空气墙碰撞 + 边界限制 + 朝向更新。
+     *
+     * <p>重力模式下两个轴用<b>不同的判据</b>，因为单向平台是有方向的：
+     * <ul>
+     *   <li>横向、向上 —— {@link WorldMap#isBlockedSideways}：单向平台不挡
+     *       （从旁边走过去、从下面跳上去都不该被拦住）；</li>
+     *   <li>向下 —— {@link WorldMap#isBlockedFalling}：只有往下走才可能落到
+     *       单向平台上，而「脚底原来是否在台面之上」这个条件正是它判的。</li>
+     * </ul>
+     *
+     * <p><b>非重力模式一律退回原来的「不分方向」判据</b>：单向平台只在有重力时
+     * 才有意义，俯视图里若把某块墙标成单向，按方向判定会让玩家直接穿墙而过 ——
+     * 一个静默的、很难解释的 bug。所以这里先看 {@code gravity} 是否为 null
+     * （框架只在 {@code mode.hasGravity()} 时给玩家挂这个组件）。
+     *
+     * @param gravity 无重力模式（{@code NORMAL}）下为 {@code null}
      */
-    private static void movePlayer(Transform t, Sprite spr, double deltaX, double deltaY, WorldMap worldMap) {
+    private static void movePlayer(Transform t, Sprite spr, double deltaX, double deltaY,
+                                   WorldMap worldMap,
+                                   com.xiaowu.game.starveil.game.ecs.comp.Gravity gravity) {
         double x = t.x;
         double y = t.y;
         double targetX = x + deltaX;
         double targetY = y + deltaY;
 
+        boolean gravityMode = gravity != null && gravity.enabled;
+        boolean passOneWay = gravityMode && gravity.isDroppingThrough();
+
         double tryX = targetX;
-        if (worldMap.isBlockedByAirWall(tryX, y, t.width, t.height)) {
+        boolean blockedX = gravityMode
+                ? worldMap.isBlockedSideways(tryX, y, t.width, t.height)
+                : worldMap.isBlockedByAirWall(tryX, y, t.width, t.height);
+        if (blockedX) {
             tryX = x;
         }
 
         double tryY = targetY;
-        if (worldMap.isBlockedByAirWall(tryX, tryY, t.width, t.height)) {
+        boolean blockedY;
+        if (!gravityMode) {
+            blockedY = worldMap.isBlockedByAirWall(tryX, tryY, t.width, t.height);
+        } else if (deltaY > 0) {
+            blockedY = worldMap.isBlockedFalling(
+                    y + t.height, tryX, tryY, t.width, t.height, passOneWay);
+        } else {
+            blockedY = worldMap.isBlockedSideways(tryX, tryY, t.width, t.height);
+        }
+        if (blockedY) {
             tryY = y;
         }
 

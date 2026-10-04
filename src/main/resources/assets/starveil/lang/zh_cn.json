@@ -37,6 +37,7 @@
   "framework.setting.bgm_interval": "BGM 间隔时间 (秒)",
   "framework.setting.key.move_up": "向上移动",
   "framework.setting.key.move_down": "向下移动",
+  "framework.setting.keys.gravity_hint": "在有重力的地图里：向上键 = 跳跃，向下键 = 从单向平台上跳下去",
   "framework.setting.key.move_left": "向左移动",
   "framework.setting.key.move_right": "向右移动",
   "framework.setting.key.accelerate": "加速",

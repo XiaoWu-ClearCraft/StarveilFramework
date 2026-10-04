@@ -377,6 +377,15 @@ public class SettingManager {
             TextStyle.title(20, renderEngine.createColor("#FF69B4"))
         );
 
+        // 上/下这两个键的含义会随地图的玩法模式变（俯视图里是移动，有重力的图里是跳/下穿），
+        // 但绑定的是同一个功能，所以不拆成两行 —— 用一行说明把两种含义都讲清楚。
+        LabelHandle gravityHintHandle = renderEngine.createLabel(
+            tr("framework.setting.keys.gravity_hint",
+               "在有重力的地图里：向上键 = 跳跃，向下键 = 从单向平台上跳下去"),
+            new TextStyle("System", 12, false, false, renderEngine.createColor("#666666"), 0, 1.2)
+        );
+        renderEngine.setMaxWidth(gravityHintHandle.getNativeHandle(), 480);
+
         Object keyGrid = renderEngine.createGridPane(20, 15);
         renderEngine.setAlignment(keyGrid, "center");
 
@@ -391,6 +400,7 @@ public class SettingManager {
 
         renderEngine.addChild(panel, panelTitleHandle.getNativeHandle());
         renderEngine.addChild(panel, keyGrid);
+        renderEngine.addChild(panel, gravityHintHandle.getNativeHandle());
         return panel;
     }
 
