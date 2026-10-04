@@ -130,6 +130,18 @@ public class TutorialManager {
     }
 
     public void startTutorial(InputHandler handler) {
+        // 教程全程在操作地图上的玩家（要求走动、疾跑、对着实体按交互键）。
+        // 没有世界时启动它，玩家会看到聚光灯和指示文字挂在一片黑上、
+        // 而「走两步」这类步骤永远不可能完成 —— 教程会卡死在第一步，
+        // 而且因为教程会锁住剧情推进，整段剧情也跟着卡住。
+        // 所以这里直接拒绝，并把原因说清楚，而不是让调用方去猜为什么没反应。
+        if (!hasLoadedWorld()) {
+            LoggerManager.Logger("ERROR",
+                    "没有加载世界，无法启动教程 —— 教程要求玩家在地图上走动。"
+                            + "请先进入世界（章节声明 ChapterMode.NORMAL 并给出 world()，"
+                            + "或在脚本里调用 s.enterWorld(...)）。本次启动请求已忽略。");
+            return;
+        }
         if (isGamePaused()) {
             pendingTutorialStart = true;
             LoggerManager.Logger("INFO", "游戏暂停中，教程将在恢复后启动");
@@ -138,6 +150,12 @@ public class TutorialManager {
         QuestManager.getInstance().acceptQuest("quest_001");
         initialize(handler);
         LoggerManager.Logger("INFO", "新手教程已启动");
+    }
+
+    /** 当前是否有已加载的世界（教程的前提条件）。 */
+    private static boolean hasLoadedWorld() {
+        GameInstance gi = GameInstance.getCurrentInstance();
+        return gi != null && gi.isWorldLoaded();
     }
 
     public void initialize(InputHandler handler) {

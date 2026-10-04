@@ -229,6 +229,22 @@ public final class FrameworkDataKeys {
     public static final DataKey<Boolean> GPU_CHECK_IGNORED =
             DataManager.defineBool("starveil", "gpu_check_ignored", false);
 
+    // ==================== 章节过场 ====================
+
+    /**
+     * 章节之间是否做「落幕 → 卸下世界 → 亮幕」的过场。默认<b>开启</b>。
+     *
+     * <p>正常流程下这个过场是必要的：它把上一章的场景与下一章的场景在视觉上切开，
+     * 也给卸下/加载世界留出时间。但有些内容希望章节之间无缝衔接
+     * （例如一章拆成两半来写），那时把它设为 false 即可。
+     *
+     * <p>注意它只控制<b>过场与卸下世界</b>：下一章要不要世界仍然由该章的
+     * {@code mode()} 决定 —— 需要世界时该加载还是会加载，不会因为关掉过场
+     * 就把世界也一起省掉。
+     */
+    public static final DataKey<Boolean> CHAPTER_FADE =
+            DataManager.defineBool("starveil", "chapter_fade", true);
+
     // ==================== 内部 ====================
 
     /**

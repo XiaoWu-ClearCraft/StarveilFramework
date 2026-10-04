@@ -241,7 +241,18 @@ DataManager.setTutorialCompleted(true);   // 按当前模式自动路由
 | `starveil:plugin_consent_given` | `false` | 用户是否已同意加载插件 |
 | `starveil:compatibility_warning_shown` | `false` | 兼容性提示是否已被忽略 |
 | `starveil:gpu_check_ignored` | `false` | 显卡检查是否已被忽略 |
+| `starveil:chapter_fade` | **`true`** | 章节之间是否做「落幕 → 卸下世界 → 亮幕」过场 |
 | `starveil:illegally_shutdown` | `false` | 上次是否异常关闭（**临时键**） |
+
+#### `starveil:chapter_fade`
+
+章节之间的过场默认**开启**：它把上一章与下一章的场景在视觉上切开，
+也给卸下 / 加载世界留出时间。
+
+有些内容希望章节之间无缝衔接（例如一章拆成两半来写），把它设为 `false` 即可。
+
+它只控制**过场与卸下世界**：下一章要不要世界仍然由该章的 `mode()` 决定 ——
+需要世界时该加载还是会加载，不会因为关掉过场就把世界一起省掉。
 
 ### 界面语言
 

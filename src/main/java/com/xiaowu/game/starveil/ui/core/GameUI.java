@@ -269,8 +269,20 @@ public class GameUI {
         uiContainer.getChildren().add(handSlotPane);
     }
 
+    /**
+     * 显示 HUD。
+     *
+     * <p><b>没有世界就不显示</b>：血条、体力条、背包槽、拾取提示全都是围着
+     * 「地图上有个玩家」这件事存在的。加载页面期间、纯视觉小说章节里都没有世界，
+     * 这类「把 HUD 显示回来」的调用散落在十来个地方（切地图、关设置、读档……），
+     * 与其逐个加判断、漏一个就冒出半截 HUD，不如在这里统一拦一道。
+     */
     public void show() {
         Platform.runLater(() -> {
+            if (!worldLoaded()) {
+                LoggerManager.Logger("DEBUG", "当前没有世界，不显示 HUD");
+                return;
+            }
             if (currentHideTransition != null) {
                 currentHideTransition.stop();
                 currentHideTransition = null;
@@ -279,17 +291,20 @@ public class GameUI {
                 LoggerManager.Logger("DEBUG", "GameUI");
                 return;
             }
-            LoggerManager.Logger("DEBUG", "显示UI，当前不透明度: " + uiContainer.getOpacity() + ", 可见性: " + uiContainer.isVisible());
             uiContainer.setVisible(true);
             uiContainer.setOpacity(0);
             FadeTransition fadeIn = new FadeTransition(Duration.millis(500), uiContainer);
             fadeIn.setFromValue(0);
             fadeIn.setToValue(1);
             fadeIn.play();
-            fadeIn.setOnFinished(e -> {
-                LoggerManager.Logger("DEBUG", "UI渐入完成，不透明度: " + uiContainer.getOpacity());
-            });
         });
+    }
+
+    /** 是否已经有一个加载好的世界（没有就不该显示 HUD）。 */
+    private static boolean worldLoaded() {
+        com.xiaowu.game.starveil.game.state.GameInstance gi =
+                com.xiaowu.game.starveil.game.state.GameInstance.getCurrentInstance();
+        return gi != null && gi.isWorldLoaded();
     }
 
     public void hide() {

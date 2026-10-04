@@ -67,6 +67,26 @@ public class WorldMap {
     private static final Map<String, Boolean> triggeredEvents = new HashMap<>(); // 记录已触发的事件
     private long mapSwitchTime = 0; // 记录地图切换时间（用于重生冷却）
     private static final long RESPAWN_COOLDOWN = 500; // 重生冷却时间（毫秒）
+
+    // ==================== 过场（幕布）时长 ====================
+    //
+    // 这些数字直接决定「点开始游戏之后多久能看到画面」，所以集中在这里，
+    // 别散落在各个调用点：否则改一处快一处慢，玩家看到的就是一段一段的卡顿。
+
+    /** 落幕后到真正开始干活之间的停顿（让玩家看清黑幕，避免闪烁感）。 */
+    private static final int CURTAIN_HOLD_MS = 120;
+
+    /** 亮幕前的停顿：给渲染管线一点时间把新世界画出来，否则会先看到一帧空白。 */
+    private static final int CURTAIN_REVEAL_HOLD_MS = 220;
+
+    /**
+     * 关掉游戏/切章节时的落幕时长。
+     *
+     * <p>比地图内切换要快：进入游戏时玩家已经等了一会儿，
+     * 再慢悠悠地幕布落下会显得卡；而幕布落下这段时间里真正在干活的是「加载世界」。
+     */
+    private static final int CURTAIN_FAST_MS = 120;
+
     private final Map<String, Boolean> eventWasMatching = new HashMap<>(); // 记录事件是否曾经匹配过（用于重复执行事件）
     private boolean mapLoaded = false; // 地图是否已加载完成（用于触发join事件）
 
@@ -1867,6 +1887,152 @@ public class WorldMap {
         hideTransitionOverlay();
     }
 
+    // ==================== 可等待的过场（幕布） ====================
+
+    /**
+     * 落幕（渐入黑幕）并在动画结束后完成，同时显示加载指示器。
+     *
+     * @param hideHud 幕布期间以及亮幕时是否保持 HUD 隐藏。
+     *                背后没有世界（加载页面）时必须为 true —— 否则亮幕时
+     *                血条之类会冒出来，而那时根本没有玩家。
+     * @param durationMs 动画时长
+     */
+    public java.util.concurrent.CompletableFuture<Void> curtainDown(boolean hideHud, int durationMs) {
+        return showCurtain(durationMs, hideHud);
+    }
+
+    /** 落幕并保持 HUD 隐藏，使用默认时长。 */
+    public java.util.concurrent.CompletableFuture<Void> curtainDown() {
+        return curtainDown(true, CURTAIN_HOLD_MS + 180);
+    }
+
+    /**
+     * 亮幕（渐出黑幕）并在动画结束后完成。
+     *
+     * <p>不显示加载指示器。亮幕后是否把 HUD 显示回来由
+     * {@link #curtainDown(int)} 里记录的「幕布期间是否需要隐藏 HUD」决定 ——
+     * 所以「页面还没有世界」时亮幕不会让 HUD 冒出来。
+     */
+    public java.util.concurrent.CompletableFuture<Void> curtainUp(int durationMs) {
+        return hideCurtain(durationMs);
+    }
+
+    /** 亮幕，使用默认时长。 */
+    public java.util.concurrent.CompletableFuture<Void> curtainUp() {
+        return curtainUp(CURTAIN_REVEAL_HOLD_MS + 180);
+    }
+
+    /** 进入游戏时的快速落幕（同样保持 HUD 隐藏）。 */
+    public java.util.concurrent.CompletableFuture<Void> curtainDownFast() {
+        return curtainDown(true, CURTAIN_FAST_MS);
+    }
+
+    /** 落幕之后到开始干活之前的短暂停顿，让玩家看清黑幕而不是一闪而过。 */
+    public static java.util.concurrent.CompletableFuture<Void> curtainPause() {
+        return delay(CURTAIN_HOLD_MS);
+    }
+
+    /** 亮幕之前的短暂停顿，给渲染管线把新世界画出来的时间。 */
+    public static java.util.concurrent.CompletableFuture<Void> curtainRevealPause() {
+        return delay(CURTAIN_REVEAL_HOLD_MS);
+    }
+
+    /** 一个可等待的延时。 */
+    private static java.util.concurrent.CompletableFuture<Void> delay(int millis) {
+        java.util.concurrent.CompletableFuture<Void> f = new java.util.concurrent.CompletableFuture<>();
+        javafx.animation.PauseTransition pause =
+                new javafx.animation.PauseTransition(Duration.millis(Math.max(0, millis)));
+        pause.setOnFinished(e -> f.complete(null));
+        pause.play();
+        return f;
+    }
+
+    /**
+     * 幕布是否处于「必须在亮幕时保持 HUD 隐藏」的状态。
+     *
+     * <p>幕布期间没有世界（加载页面）时为 true。
+     */
+    private boolean curtainHidesHud = false;
+
+    private java.util.concurrent.CompletableFuture<Void> showCurtain(int durationMs, boolean hideHud) {
+        java.util.concurrent.CompletableFuture<Void> done = new java.util.concurrent.CompletableFuture<>();
+        curtainHidesHud = hideHud;
+        suppressHudOnCurtainLift = hideHud;
+
+        javafx.application.Platform.runLater(() -> {
+            prepareOverlay(true, true);
+            FadeTransition fadeIn = new FadeTransition(
+                    Duration.millis(Math.max(1, durationMs)), transitionOverlay);
+            fadeIn.setFromValue(transitionOverlay.getOpacity());
+            fadeIn.setToValue(1);
+            fadeIn.setOnFinished(e -> done.complete(null));
+            fadeIn.play();
+        });
+        return done;
+    }
+
+    private java.util.concurrent.CompletableFuture<Void> hideCurtain(int durationMs) {
+        java.util.concurrent.CompletableFuture<Void> done = new java.util.concurrent.CompletableFuture<>();
+        if (transitionOverlay == null) {
+            done.complete(null);
+            return done;
+        }
+
+        javafx.application.Platform.runLater(() -> {
+            FadeTransition fadeOut = new FadeTransition(
+                    Duration.millis(Math.max(1, durationMs)), transitionOverlay);
+            fadeOut.setFromValue(transitionOverlay.getOpacity());
+            fadeOut.setToValue(0);
+            fadeOut.setOnFinished(e -> {
+                finishCurtainLift();
+                done.complete(null);
+            });
+            fadeOut.play();
+        });
+        return done;
+    }
+
+    /**
+     * 亮幕动画结束后的收尾：藏遮罩、停加载动画、按需恢复 HUD。
+     *
+     * <p>抽出来共用是为了让「可等待版」和「不等版」的收尾行为完全一致 ——
+     * 两套收尾逻辑迟早会漂移。
+     */
+    private void finishCurtainLift() {
+        transitionOverlay.setVisible(false);
+        curtainHidesHud = false;
+
+        // 延迟显示 GameUI，确保加载动画完全消失
+        javafx.animation.PauseTransition pause =
+                new javafx.animation.PauseTransition(Duration.millis(100));
+        pause.setOnFinished(pauseEvent -> {
+            // 切到「仅视觉小说」模式 / 幕布背后没有世界时不要把它显示回来
+            if (!suppressHudOnCurtainLift) {
+                GameUI.getInstance().show();
+            }
+            suppressHudOnCurtainLift = false;
+        });
+        pause.play();
+
+        // 从容器中移除遮罩
+        if (gameContainer != null && gameContainer.getChildren().contains(transitionOverlay)) {
+            gameContainer.getChildren().remove(transitionOverlay);
+        }
+
+        // 停止加载动画
+        if (loadingIndicator != null) {
+            loadingIndicator.setVisible(false);
+            if (loadingAnimation != null) {
+                loadingAnimation.stop();
+            }
+            for (javafx.scene.Node node : loadingIndicator.getChildren()) {
+                if (node instanceof Circle) {
+                    ((Circle) node).setOpacity(0.3);
+                }
+            }
+        }
+    }
+
     /** 拉幕时是否抑制「自动显示 HUD」。 */
     private boolean suppressHudOnCurtainLift = false;
 
@@ -1902,123 +2068,84 @@ public class WorldMap {
      * @param showLoading     是否显示加载指示器
      */
     private void showTransitionOverlay(Pane parentContainer, boolean showLoading) {
+        prepareOverlay(showLoading, false);
+    }
+
+    /**
+     * 把遮罩准备好并渐入。
+     *
+     * @param showLoading 是否显示加载指示器
+     * @param waitable    是否是「可等待版」调用。
+     *                    可等待版自己驱动动画并在完成后兑现 future；
+     *                    这里就不再另起一个动画，否则两个动画会互相打断。
+     */
+    private void prepareOverlay(boolean showLoading, boolean waitable) {
         if (transitionOverlay == null) {
             createTransitionOverlay();
         }
 
         // 使用 gameContainer，因为它有正确的比例和大小设置
-        Pane container = gameContainer != null ? gameContainer : parentContainer;
-
-        LoggerManager.Logger("DEBUG", "显示过渡遮罩，容器: " + (container != null ? "存在" : "不存在"));
-        LoggerManager.Logger("DEBUG", "容器大小: " + (container != null ? container.getWidth() + "x" + container.getHeight() : "N/A"));
+        Pane container = gameContainer;
 
         if (container != null) {
             if (!container.getChildren().contains(transitionOverlay)) {
                 // 将遮罩添加到容器的最上层
                 container.getChildren().add(transitionOverlay);
-                LoggerManager.Logger("DEBUG", "过渡遮罩已添加到容器");
             }
-
-            // 确保遮罩在最上层
             transitionOverlay.toFront();
-            LoggerManager.Logger("DEBUG", "过渡遮罩已移到最上层");
         }
 
         // 显示遮罩并设置不透明度为0（准备渐入）
         transitionOverlay.setVisible(true);
-        transitionOverlay.setOpacity(0);
+        if (!waitable) {
+            transitionOverlay.setOpacity(0);
+        }
 
         // 隐藏GameUI
         GameUI.getInstance().hide();
 
-        LoggerManager.Logger("DEBUG", "过渡遮罩可见性: " + transitionOverlay.isVisible() + ", 不透明度: " + transitionOverlay.getOpacity());
-        LoggerManager.Logger("DEBUG", "过渡遮罩大小: " + transitionOverlay.getWidth() + "x" + transitionOverlay.getHeight());
-
-        // 渐入效果
-        FadeTransition fadeIn = new FadeTransition(Duration.millis(200), transitionOverlay);
-        fadeIn.setFromValue(0);
-        fadeIn.setToValue(1);
-        fadeIn.play();
-
-        // 监听动画完成
-        fadeIn.setOnFinished(e -> {
-            LoggerManager.Logger("DEBUG", "渐入动画完成，不透明度: " + transitionOverlay.getOpacity());
-            LoggerManager.Logger("DEBUG", "渐入动画完成，遮罩大小: " + transitionOverlay.getWidth() + "x" + transitionOverlay.getHeight());
-        });
+        if (!waitable) {
+            FadeTransition fadeIn = new FadeTransition(Duration.millis(200), transitionOverlay);
+            fadeIn.setFromValue(0);
+            fadeIn.setToValue(1);
+            fadeIn.play();
+        }
 
         // 显示/隐藏加载指示器
         if (loadingIndicator != null) {
             loadingIndicator.setVisible(showLoading);
             if (showLoading && loadingAnimation != null) {
                 // 设置遮罩的宽高与容器一致
-                transitionOverlay.setPrefWidth(container.getWidth());
-                transitionOverlay.setPrefHeight(container.getHeight());
+                if (container != null) {
+                    transitionOverlay.setPrefWidth(container.getWidth());
+                    transitionOverlay.setPrefHeight(container.getHeight());
+                }
 
                 // 计算右下角位置
-                double containerWidth = container.getWidth();
-                double containerHeight = container.getHeight();
+                double containerWidth = container != null ? container.getWidth() : 0;
+                double containerHeight = container != null ? container.getHeight() : 0;
                 double indicatorWidth = loadingIndicator.getPrefWidth();
                 double indicatorHeight = loadingIndicator.getPrefHeight();
 
                 // 设置位置：距离右边和底部各 30px
-                double x = containerWidth - indicatorWidth - 30;
-                double y = containerHeight - indicatorHeight - 30;
-
-                // 使用绝对定位
-                loadingIndicator.setLayoutX(x);
-                loadingIndicator.setLayoutY(y);
+                loadingIndicator.setLayoutX(containerWidth - indicatorWidth - 30);
+                loadingIndicator.setLayoutY(containerHeight - indicatorHeight - 30);
 
                 loadingAnimation.play();
-                LoggerManager.Logger("DEBUG", "加载指示器开始动画，位置: " + x + "," + y + " (容器: " + containerWidth + "x" + containerHeight + ")");
             }
         }
     }
 
     /**
-     * 隐藏过渡遮罩
+     * 隐藏过渡遮罩（不等动画结束的版本）。
      */
     private void hideTransitionOverlay() {
         if (transitionOverlay == null) return;
 
-        // 渐出效果
         FadeTransition fadeOut = new FadeTransition(Duration.millis(300), transitionOverlay);
-        fadeOut.setFromValue(1);
+        fadeOut.setFromValue(transitionOverlay.getOpacity());
         fadeOut.setToValue(0);
-        fadeOut.setOnFinished(e -> {
-            transitionOverlay.setVisible(false);
-
-            // 延迟显示GameUI，确保加载动画完全消失
-            javafx.animation.PauseTransition pause = new javafx.animation.PauseTransition(Duration.millis(100));
-            pause.setOnFinished(pauseEvent -> {
-                // 切到「仅视觉小说」模式时不要把它显示回来
-                if (!suppressHudOnCurtainLift) {
-                    GameUI.getInstance().show();
-                }
-                suppressHudOnCurtainLift = false;
-            });
-            pause.play();
-
-            // 从容器中移除遮罩
-            if (gameContainer != null && gameContainer.getChildren().contains(transitionOverlay)) {
-                gameContainer.getChildren().remove(transitionOverlay);
-                LoggerManager.Logger("DEBUG", "过渡遮罩已从容器中移除");
-            }
-
-            // 停止加载动画
-            if (loadingIndicator != null) {
-                loadingIndicator.setVisible(false);
-                if (loadingAnimation != null) {
-                    loadingAnimation.stop();
-                }
-                // 重置所有圆点的不透明度
-                for (javafx.scene.Node node : loadingIndicator.getChildren()) {
-                    if (node instanceof Circle) {
-                        Circle circle = (Circle) node;
-                        circle.setOpacity(0.3);
-                    }
-                }
-            }
-        });
+        fadeOut.setOnFinished(e -> finishCurtainLift());
         fadeOut.play();
     }
 

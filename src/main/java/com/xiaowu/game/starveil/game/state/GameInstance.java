@@ -223,13 +223,19 @@ public class GameInstance {
 
         // 不再硬编码挂载某张地图。
         //
-        // 世界由章节自己决定：章节脚本调用 s.enterWorld(path) 时才加载。
+        // 世界由章节决定：起始章节通过 StoryChapter.world() 声明要用哪张图
+        // （或由内容在 ContentConfig.setStartWorld 里给一张），
+        // 章节脚本也可以在 write() 里用 s.enterWorld(path) 换图。
         // 框架写死 test-world 有两个问题：换游戏必须改框架；
         // 而且「章节还没跑」和「章节跑完了」两种状态看起来是同一张图，
         // 分不清世界到底是章节挂上的还是框架自作主张挂的。
         viewport.setStyle("-fx-background-color: black;");
         if (!wantWorld) {
-            Logger("INFO", "章节模式 = 仅视觉小说（VISUAL_NOVEL）：不加载世界");
+            Logger("INFO", "章节模式 = 仅视觉小说（VISUAL_NOVEL）：不加载世界，"
+                    + "也不显示 HUD");
+            // 没有世界就没有血条/体力条/背包槽的意义。show() 里也拦了一道，
+            // 这里显式隐藏一次是为了让「进游戏第一帧」的意图明确。
+            GameUI.getInstance().hide();
         }
 
         // 注册容器事件监听
@@ -255,8 +261,18 @@ public class GameInstance {
         // 开始游戏循环
         startGameLoop();
 
-        // 章节由总导演从第 1 章开始跑 —— 与「进了哪张地图」无关。
+        // 章节由总导演从起始章节开始跑 —— 与「进了哪张地图」无关。
         // 放在循环启动之后，保证剧情开始时 UI / 渲染都已就绪。
+        //
+        // 先快速落幕再交给章节调度器：
+        //   · 玩家点「开始游戏」之后画面立刻暗下来（快，不是慢悠悠地黑屏）；
+        //   · 幕布背后就是「加载页面」（黑底 + 加载指示器），
+        //     需要世界的章节在幕布后面加载完毕后才亮幕 —— 玩家不会看到
+        //     「先空一下、地图突然出现」那一帧；
+        //   · ChapterDirector.start() 返回的 future 在过场结束后才继续跑章节，
+        //     且它内部还会再等一次「世界加载 + 亮幕」，所以这里不 await 也不会
+        //     让剧情抢在画面之前开始。
+        worldMap.curtainDownFast();
         com.xiaowu.game.starveil.game.story.ChapterDirector.getInstance().start();
     }
 
@@ -429,47 +445,41 @@ public class GameInstance {
         modeTransitioning = true;
         java.util.concurrent.CompletableFuture<Void> future = new java.util.concurrent.CompletableFuture<>();
 
+        // 从「没有世界」进入世界时的过场：
+        //   落幕(等) → 停顿 → 挂载世界（这段时间就是真正的加载）→ 停顿 → 亮幕(等)
+        // future 在亮幕动画结束后才完成，所以调用方可以放心地认为
+        // 「世界已就绪且画面已经亮起来」，之后才继续跑章节。
         javafx.application.Platform.runLater(() -> {
-            try {
-                if (inputHandler != null) {
-                    inputHandler.lockControls(InputHandler.LOCK_MAP_TRANSITION);
-                }
-                // 1. 渐入黑幕（与切地图一致）
-                worldMap.fadeToBlack();
-
-                // 2. 停顿，让渐入动画走完
-                javafx.animation.PauseTransition pause =
-                        new javafx.animation.PauseTransition(javafx.util.Duration.millis(500));
-                pause.setOnFinished(e -> {
-                    try {
-                        // 3. 挂载世界
-                        mountWorld(mapFile, spawnX, spawnY);
-                        Logger("INFO", "已进入世界: " + mapFile);
-
-                        // 4. 稍等一下再拉开黑幕
-                        javafx.animation.PauseTransition reveal =
-                                new javafx.animation.PauseTransition(javafx.util.Duration.millis(300));
-                        reveal.setOnFinished(e2 -> {
-                            worldMap.fadeFromBlack();
-                            if (inputHandler != null) {
-                                inputHandler.unlockControls(InputHandler.LOCK_MAP_TRANSITION);
-                            }
-                            modeTransitioning = false;
-                            future.complete(null);
-                        });
-                        reveal.play();
-                    } catch (Exception ex) {
-                        Logger("ERROR", "进入世界失败: " + ex.getMessage());
-                        modeTransitioning = false;
-                        future.completeExceptionally(ex);
-                    }
-                });
-                pause.play();
-            } catch (Exception ex) {
-                Logger("ERROR", "进入世界失败: " + ex.getMessage());
-                modeTransitioning = false;
-                future.completeExceptionally(ex);
+            if (inputHandler != null) {
+                inputHandler.lockControls(InputHandler.LOCK_MAP_TRANSITION);
             }
+            worldMap.curtainDownFast()
+                    .thenCompose(ignored -> WorldMap.curtainPause())
+                    .thenCompose(ignored -> {
+                        try {
+                            mountWorld(mapFile, spawnX, spawnY);
+                            Logger("INFO", "已进入世界: " + mapFile);
+                        } catch (Exception ex) {
+                            Logger("ERROR", "进入世界失败: " + ex.getMessage());
+                            future.completeExceptionally(ex);
+                            modeTransitioning = false;
+                            return java.util.concurrent.CompletableFuture.<Void>completedFuture(null);
+                        }
+                        return WorldMap.curtainRevealPause();
+                    })
+                    .thenCompose(ignored -> worldMap.curtainUp())
+                    .whenComplete((ignored, ex) -> {
+                        if (inputHandler != null) {
+                            inputHandler.unlockControls(InputHandler.LOCK_MAP_TRANSITION);
+                        }
+                        modeTransitioning = false;
+                        if (ex != null) {
+                            Logger("ERROR", "进入世界失败: " + ex.getMessage());
+                            future.completeExceptionally(ex);
+                        } else if (!future.isDone()) {
+                            future.complete(null);
+                        }
+                    });
         });
 
         return future;
@@ -504,53 +514,109 @@ public class GameInstance {
         modeTransitioning = true;
         java.util.concurrent.CompletableFuture<Void> future = new java.util.concurrent.CompletableFuture<>();
 
+        // 过场全程可等待，顺序固定：锁操作 → 落幕(等) → 卸世界 → 停顿 → 亮幕(等) → 解锁。
+        // 「等」是关键：调用方（章节调度器）拿到 future 完成时，幕布已经真的拉上/拉开了，
+        // 而不是刚发起动画就往下跑 —— 否则剧情会在黑幕还没落下时就开始播。
         javafx.application.Platform.runLater(() -> {
-            try {
-                if (inputHandler != null) {
-                    inputHandler.lockControls(InputHandler.LOCK_MAP_TRANSITION);
-                }
-                // 1. 渐入黑幕（与切地图一致）；keepHudHidden=true 让拉幕时不要把 HUD 显示回来
-                worldMap.fadeToBlack(true);
-
-                // 2. 停顿，让渐入动画走完
-                javafx.animation.PauseTransition pause =
-                        new javafx.animation.PauseTransition(javafx.util.Duration.millis(500));
-                pause.setOnFinished(e -> {
-                    try {
-                        // 3. 卸下世界（不加载新地图）
-                        worldMap.unloadWorld();
-                        playerEntity = -1;
-                        worldLoaded = false;
-                        viewport.setStyle("-fx-background-color: black;");
-                        // HUD（血条/体力条…）在「仅视觉小说」模式下没有意义 —— 没有世界、
-                        // 没有玩家。注意这和「对话层盖住 HUD」是两回事：那个场景下世界还在。
-                        GameUI.getInstance().hide();
-                        Logger("INFO", "已切换到仅视觉小说模式（未加载新世界）");
-
-                        // 4. 稍等一下再拉开黑幕，让章节的 s.image() 能显示出来
-                        javafx.animation.PauseTransition reveal =
-                                new javafx.animation.PauseTransition(javafx.util.Duration.millis(300));
-                        reveal.setOnFinished(e2 -> {
-                            worldMap.fadeFromBlack();
-                            if (inputHandler != null) {
-                                inputHandler.unlockControls(InputHandler.LOCK_MAP_TRANSITION);
-                            }
-                            modeTransitioning = false;
-                            future.complete(null);
-                        });
-                        reveal.play();
-                    } catch (Exception ex) {
-                        Logger("ERROR", "切换到视觉小说模式失败: " + ex.getMessage());
-                        modeTransitioning = false;
-                        future.completeExceptionally(ex);
-                    }
-                });
-                pause.play();
-            } catch (Exception ex) {
-                Logger("ERROR", "切换到视觉小说模式失败: " + ex.getMessage());
-                modeTransitioning = false;
-                future.completeExceptionally(ex);
+            if (inputHandler != null) {
+                inputHandler.lockControls(InputHandler.LOCK_MAP_TRANSITION);
             }
+            // 幕布期间保持 HUD 隐藏：卸下世界之后没有血条存在的意义
+            worldMap.curtainDown()
+                    .thenCompose(ignored -> {
+                        try {
+                            worldMap.unloadWorld();
+                            playerEntity = -1;
+                            worldLoaded = false;
+                            viewport.setStyle("-fx-background-color: black;");
+                            GameUI.getInstance().hide();
+                            Logger("INFO", "已切换到仅视觉小说模式（未加载新世界）");
+                        } catch (Exception ex) {
+                            Logger("ERROR", "卸下世界失败: " + ex.getMessage());
+                        }
+                        return WorldMap.curtainRevealPause();
+                    })
+                    .thenCompose(ignored -> worldMap.curtainUp())
+                    .whenComplete((ignored, ex) -> {
+                        if (inputHandler != null) {
+                            inputHandler.unlockControls(InputHandler.LOCK_MAP_TRANSITION);
+                        }
+                        modeTransitioning = false;
+                        if (ex != null) {
+                            Logger("ERROR", "切换到视觉小说模式失败: " + ex.getMessage());
+                            future.completeExceptionally(ex);
+                        } else {
+                            future.complete(null);
+                        }
+                    });
+        });
+
+        return future;
+    }
+
+    /**
+     * 停在加载页面（落幕 + 加载指示器），不亮幕。
+     *
+     * <p>用在「章节声明需要世界，但没人告诉框架该加载哪张图」这种情况：
+     * 与其亮幕给玩家一张空图、让他对着黑屏猜，不如明确停在加载页面，
+     * 等章节脚本自己 {@code s.enterWorld(...)}。
+     *
+     * @return 幕布落下后完成的 future
+     */
+    public java.util.concurrent.CompletableFuture<Void> holdLoadingPage() {
+        return worldMap.curtainDown();
+    }
+
+    /**
+     * 章节之间的过场：落幕（等动画结束）→ 卸下世界 → 亮幕（等动画结束）。
+     *
+     * <p>卸下世界是为了让下一章从干净的状态开始：它可能只要视觉小说
+     * （那就不该有残留的世界），也可能要另一张图（那就由它自己加载）。
+     * 把「卸下」放在这里、而不是让下一章自己处理，是因为此刻画面已经被幕布盖住，
+     * 是唯一不会露出中间态的时机。
+     *
+     * <p>返回的 future 在亮幕结束后完成 —— 期间控制权不交给下一章，
+     * 所以下一章的脚本不会在画面还在切换时就开始播。
+     */
+    public java.util.concurrent.CompletableFuture<Void> curtainDownAndUnloadWorld() {
+        if (modeTransitioning) {
+            Logger("WARN", "过场进行中，忽略重复的章节过场请求");
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+        modeTransitioning = true;
+        java.util.concurrent.CompletableFuture<Void> future = new java.util.concurrent.CompletableFuture<>();
+
+        javafx.application.Platform.runLater(() -> {
+            if (inputHandler != null) {
+                inputHandler.lockControls(InputHandler.LOCK_MAP_TRANSITION);
+            }
+            worldMap.curtainDown()
+                    .thenCompose(ignored -> {
+                        try {
+                            worldMap.unloadWorld();
+                            playerEntity = -1;
+                            worldLoaded = false;
+                            viewport.setStyle("-fx-background-color: black;");
+                            GameUI.getInstance().hide();
+                            Logger("INFO", "章节过场：世界已卸下，等待下一章决定世界/模式");
+                        } catch (Exception ex) {
+                            Logger("ERROR", "章节过场卸下世界失败: " + ex.getMessage());
+                        }
+                        return WorldMap.curtainRevealPause();
+                    })
+                    .thenCompose(ignored -> worldMap.curtainUp())
+                    .whenComplete((ignored, ex) -> {
+                        if (inputHandler != null) {
+                            inputHandler.unlockControls(InputHandler.LOCK_MAP_TRANSITION);
+                        }
+                        modeTransitioning = false;
+                        if (ex != null) {
+                            Logger("ERROR", "章节过场失败: " + ex.getMessage());
+                            future.completeExceptionally(ex);
+                        } else {
+                            future.complete(null);
+                        }
+                    });
         });
 
         return future;
