@@ -177,11 +177,6 @@ public final class init {
         ContentConfig.addLanguage("zh_cn", "简体中文");
         ContentConfig.addLanguage("en_us", "English");
 
-        // 起始世界 —— 起始章节声明 NORMAL 时，框架用它来在亮幕之前把世界加载好。
-        // 不给的话框架不猜（会记 ERROR 并停在加载页面），
-        // 要么在这里给一张图，要么把起始章节声明成 VISUAL_NOVEL。
-        ContentConfig.setStartWorld("starveil:data/worlds/my-first-map.json");
-
         // 数据文件加密密钥（不提供则用框架默认值；换密钥会作废旧存档）
         ContentConfig.setDataCryptoKey("MyGame_SecretKey", null);
 

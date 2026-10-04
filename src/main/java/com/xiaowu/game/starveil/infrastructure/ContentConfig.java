@@ -42,14 +42,6 @@ public final class ContentConfig {
     public static final String DEFAULT_APP_ICON = "starveil:textures/icons/app-icon.png";    public static final String DEFAULT_MENU_BACKGROUND = "starveil:textures/backgrounds/main-menu.png";
     public static final String DEFAULT_MENU_MUSIC = "starveil:sounds/music/dream.mp3";
 
-    /**
-     * 历史起始世界路径 —— <b>仅作记录，框架不会加载它</b>。
-     *
-     * <p>它属于内容项目；留着这个常量是为了让「起始世界曾经是它」这件事有据可查，
-     * 也方便内容侧 {@code setStartWorld(DEFAULT_START_WORLD)} 时有个引用。
-     */
-    public static final String DEFAULT_START_WORLD = "starveil:data/worlds/test-world.json";
-
     // 主题色默认值：直接引用 GameConstants，保持单一事实源。
     // GameConstants 只依赖 java.io/nio，因此 infrastructure → config 不构成包循环。
     public static final String DEFAULT_PRIMARY_COLOR =
@@ -142,40 +134,6 @@ public final class ContentConfig {
     public static String menuMusic() {
         return menuMusic;
     }
-
-    // ==================== 起始世界 ====================
-
-    /**
-     * 起始世界（地图 JSON 路径）—— <b>由内容指定</b>。
-     *
-     * <p>框架在开头会问「要不要世界」：若起始章节声明的是
-     * {@code ChapterMode.NORMAL}，说明它需要一个世界，而那一刻章节代码还没开始跑
-     * （章节不可能自己先 {@code enterWorld} 再声明需要世界）。所以世界路径必须在
-     * 内容初始化阶段就给出。
-     *
-     * <pre>
-     *   // content.init.init()
-     *   ContentConfig.setStartWorld("starveil:data/worlds/my-first-map.json");
-     * </pre>
-     *
-     * <p><b>没设会怎样</b>：起始章节又声明要世界、又没给起始世界时，
-     * 框架<b>不猜</b>（猜错等于把玩家丢进一张不相干的图），
-     * 而是保持加载页面并记一条 ERROR，等章节自己调 {@code s.enterWorld(...)}。
-     * 也就是说：要么在这里给一张图，要么把起始章节声明成 VISUAL_NOVEL。
-     *
-     * <p>{@link #DEFAULT_START_WORLD} 只是历史默认值的记录，框架不会去加载它 ——
-     * 那张图属于内容项目。
-     */
-    public static void setStartWorld(String path) {
-        startWorld = assign(path, DEFAULT_START_WORLD, "起始世界");
-    }
-
-    /** 起始世界路径；内容未提供时为 {@code null}。 */
-    public static String startWorld() {
-        return startWorld;
-    }
-
-    private static volatile String startWorld = null;
 
     /** 窗口图标路径；内容未提供时为 null —— 调用方应改用系统默认图标。 */
     public static String appIcon() {
@@ -343,7 +301,6 @@ public final class ContentConfig {
         appIcon = null;
         menuBackground = null;
         menuMusic = null;
-        startWorld = null;
         primaryColor = DEFAULT_PRIMARY_COLOR;
         secondaryColor = DEFAULT_SECONDARY_COLOR;
         tertiaryColor = DEFAULT_TERTIARY_COLOR;

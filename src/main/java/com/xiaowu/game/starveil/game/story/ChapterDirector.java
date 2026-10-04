@@ -197,9 +197,13 @@ public final class ChapterDirector {
         StoryChapter instance = instantiate(type);
         ChapterMode mode = instance.mode();
 
-        // 章节声明的模式必须与「世界是否已加载」一致。
-        // 不一致时先走过场切换（例如 NORMAL → VISUAL_NOVEL 会把世界卸下），
-        // 再开始跑章节 —— 这样章节作者不需要关心当前是哪种模式。
+        // 章节切换的「落幕」在上一章结束时已经做掉了（见 transitionToChapter），
+        // 这里只负责把运行模式调整到位。
+        //
+        // 注意 ensureMode 在「章节要世界、当前没有世界」时【不做等待】：
+        // 它只把加载页面准备好（黑幕 + 加载指示器）就把控制权交给本章脚本 ——
+        // 真正的加载由章节自己调用 s.enterWorld(...) 发起。
+        // 这样「谁决定去哪张图」始终只有一个答案：章节。
         return ensureMode(mode).thenCompose(ignored -> {
             currentChapter = chapter;
             pendingChapter = -1;
@@ -210,36 +214,35 @@ public final class ChapterDirector {
             com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents
                     .chapterChanged(chapter, mode.name());
 
-            return StoryScripts.run(instance).whenComplete((r, ex) -> {
-                running = false;
-                if (ex != null) {
-                    Logger("ERROR", "[ChapterDirector] 章节 " + chapter + " 异常结束: " + ex);
-                }
-                // 章节结束后再进入排定的下一章 —— 保证同一时刻只有一章在跑
-                int next = pendingChapter;
-                if (next >= 1) {
-                    pendingChapter = -1;
-                    // 章节之间的过场：落幕 → 卸下世界 → 交给下一章
-                    //（由下一章自己决定要世界还是只要视觉小说）。
-                    // 全程可等待，所以下一章的脚本一定是在画面切换完之后才开跑。
-                    transitionToChapter(next).thenRun(() -> runChapter(next));
-                }
-            });
+            // 控制权在这一刻交给本章：脚本随后开始跑。
+            // 本章应当先调用 s.enterWorld(...) —— 它会等「挂载世界 + 亮幕动画」
+            // 全部结束才返回，所以紧接着的对话不会出现在黑屏上。
+            return StoryScripts.run(instance);
+        }).whenComplete((r, ex) -> {
+            running = false;
+            if (ex != null) {
+                Logger("ERROR", "[ChapterDirector] 章节 " + chapter + " 异常结束: " + ex);
+            }
+            int next = pendingChapter;
+            if (next >= 1) {
+                pendingChapter = -1;
+                // 章节之间的过场：落幕 → 交给下一章（由它自己加载世界）
+                transitionToChapter(next).thenRun(() -> runChapter(next));
+            }
         });
     }
 
     /**
-     * 章节之间的过场。
+     * 章节之间的过场：落幕，然后把控制权交给下一章。
      *
-     * <p>规则：<b>落幕之后先卸下世界，控制权交给下一章</b>，
-     * 由下一章决定「要世界」还是「只要视觉小说」（{@link #ensureMode} 会在
-     * 下一章的 {@code runChapter} 里做这件事）。
+     * <p><b>不在这里卸下世界</b> —— 卸不卸由下一章的 {@code mode()} 决定
+     * （要世界就接着用，只要视觉小说就由 {@link #ensureMode} 卸掉）。
+     * 这样「换图」的责任仍然只在章节自己身上，框架不会替它做决定。
      *
-     * <p>两种情况直接跳过，不白白黑一次屏：
+     * <p>两种情况跳过，不白白黑一次屏：
      * <ul>
      *   <li>下一章声明 {@link ChapterMode#NORMAL} 且当前已有世界 ——
-     *       两边都是「有世界」，卸了再装只是闪烁；换图由章节自己
-     *       {@code s.enterWorld(...)}。</li>
+     *       两边都是「有世界」，接着用就行，黑一次只是闪烁。</li>
      *   <li>特殊键 {@code starveil:chapter_fade} 被显式设为 false。</li>
      * </ul>
      */
@@ -254,27 +257,40 @@ public final class ChapterDirector {
         }
         boolean nextWantsWorld = resolveMode(next) == ChapterMode.NORMAL;
         if (nextWantsWorld && gi.isWorldLoaded()) {
+            // 下一章接着用当前世界，不需要黑屏；要换图由它自己 enterWorld
             return CompletableFuture.completedFuture(null);
         }
 
-        Logger("INFO", "[ChapterDirector] 章节过场：落幕并卸下世界，交给第 " + next + " 章");
-        return gi.curtainDownAndUnloadWorld();
+        if (!gi.isWorldLoaded()) {
+            // 本来就没有世界（上一章是纯视觉小说）：已经在一片黑幕上，
+            // 直接交接即可，不必再落幕一次
+            return CompletableFuture.completedFuture(null);
+        }
+
+        Logger("INFO", "[ChapterDirector] 章节过场：落幕，交给第 " + next + " 章");
+        return gi.curtainDownForChapter();
     }
 
     /**
-     * 让运行模式与章节要求一致，并保证需要世界的章节在脚本开跑前就有世界。
+     * 把运行环境调整到章节声明的模式。
      *
-     * <p>规则：
-     * <ol>
-     *   <li><b>章节声明要世界、当前却没有</b>：落幕 → 显示加载页面 → 加载世界
-     *       （图由 {@link StoryChapter#world()} 指定，没指定则用内容在
-     *       {@code ContentConfig.setStartWorld(...)} 里给的那张）→ 亮幕。
-     *       整段过程都在这条 future 里，所以<b>亮幕完成之前章节脚本不会开始跑</b>。</li>
-     *   <li><b>章节声明要世界、当前已有世界</b>：什么都不做（同图不重复加载，
-     *       换图由章节自己 {@code s.enterWorld(...)}）。</li>
-     *   <li><b>章节声明只要视觉小说</b>：落幕 → 卸下世界 → 亮幕（幕布背后是黑的，
-     *       由视觉小说层接管）。卸下之后 HUD 不会自己冒出来。</li>
-     * </ol>
+     * <p><b>框架不猜世界。</b>「去哪张图」永远只有一个答案来源：章节自己调用
+     * {@code s.enterWorld(...)}。所以「章节要世界、当前却没有世界」时这里只做一件事
+     * —— 把加载页面准备好（黑幕 + 加载指示器），然后就把控制权交给章节脚本，
+     * 真正的加载由脚本发起。
+     *
+     * <p>章节切换的时间线因此是：
+     * <pre>
+     *   上一章结束
+     *     → 落幕（等动画结束）
+     *     → 本章脚本开始跑（画面是黑幕 + 加载指示器）
+     *     → 本章调 s.enterWorld(...)：挂载世界 → 亮幕（等动画结束）
+     *     → 之后的对话与演出
+     * </pre>
+     * 最后一步「亮幕动画结束才返回」，所以不会出现「黑屏上先弹出对话框」。
+     *
+     * <p><b>章节只要视觉小说</b>时卸下世界，让脚本从干净的黑幕开始
+     * （章节通常紧接着 {@code s.image(...)} 铺背景）。
      */
     private CompletableFuture<Void> ensureMode(ChapterMode mode) {
         GameInstance gi = GameInstance.getCurrentInstance();
@@ -282,47 +298,25 @@ public final class ChapterDirector {
             return CompletableFuture.completedFuture(null);
         }
         boolean wantWorld = mode == ChapterMode.NORMAL;
-        if (wantWorld == gi.isWorldLoaded()) {
+
+        if (!wantWorld) {
+            if (gi.isWorldLoaded()) {
+                Logger("INFO", "[ChapterDirector] 章节要求仅视觉小说模式，卸下当前世界");
+                return gi.enterVisualNovelMode();
+            }
+            // 本来就没有世界：什么都不用做，脚本直接在黑幕上开始
             return CompletableFuture.completedFuture(null);
         }
-        if (!wantWorld) {
-            Logger("INFO", "[ChapterDirector] 章节要求仅视觉小说模式，卸下当前世界");
-            return gi.enterVisualNovelMode();
-        }
-        return loadWorldForCurrentChapter(gi);
-    }
 
-    /**
-     * 为当前章节加载世界：落幕 → 加载 → 亮幕，全程可等待。
-     *
-     * <p>找不到该用哪张图时<b>不猜</b>：记 ERROR 并保持加载页面，
-     * 让章节脚本自己决定（{@code s.enterWorld(...)}）。猜错的代价是把玩家
-     * 丢进一张跟他要玩的剧情无关的地图，比停在加载页面糟得多。
-     */
-    private CompletableFuture<Void> loadWorldForCurrentChapter(GameInstance gi) {
-        String declared = null;
-        try {
-            declared = instantiate(resolve(currentChapter)).world();
-        } catch (Exception e) {
-            Logger("ERROR", "[ChapterDirector] 读取章节 " + currentChapter
-                    + " 声明的世界失败: " + e.getMessage());
-        }
-        String map = declared != null && !declared.isBlank()
-                ? declared
-                : com.xiaowu.game.starveil.infrastructure.ContentConfig.startWorld();
-
-        if (map == null || map.isBlank()) {
-            Logger("ERROR", "[ChapterDirector] 第 " + currentChapter
-                    + " 章声明需要世界，但没有可用的地图："
-                    + "请在章节里覆写 world()，或由内容调用"
-                    + " ContentConfig.setStartWorld(...) 指定起始世界。"
-                    + "在此之前界面会停在加载页面，等章节自己调 s.enterWorld(...)。");
-            // 停在加载页面（幕布落下 + 加载指示器），而不是亮幕给玩家一张空图
-            return gi.holdLoadingPage();
+        if (gi.isWorldLoaded()) {
+            // 已经有世界：本章接着用（要换图就自己 enterWorld）
+            return CompletableFuture.completedFuture(null);
         }
 
-        Logger("INFO", "[ChapterDirector] 为第 " + currentChapter + " 章加载世界: " + map);
-        return gi.enterNormalMode(map, null, null);
+        Logger("INFO", "[ChapterDirector] 第 " + currentChapter
+                + " 章声明需要世界。加载页面就绪后即交给本章，"
+                + "由它自己调 s.enterWorld(\"地图路径\") —— 框架不猜该去哪张图。");
+        return gi.holdLoadingPage();
     }
 
     private StoryChapter instantiate(Class<? extends StoryChapter> type) {

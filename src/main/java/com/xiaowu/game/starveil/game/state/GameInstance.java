@@ -221,11 +221,10 @@ public class GameInstance {
         inventory = new Inventory();
         setupBackpackInput();
 
-        // 不再硬编码挂载某张地图。
+        // 不在框架里硬编码任何一张地图。
         //
-        // 世界由章节决定：起始章节通过 StoryChapter.world() 声明要用哪张图
-        // （或由内容在 ContentConfig.setStartWorld 里给一张），
-        // 章节脚本也可以在 write() 里用 s.enterWorld(path) 换图。
+        // 世界由章节自己加载：声明 NORMAL 的章节在 write() 开头调用
+        // s.enterWorld(路径)；框架只负责先把加载页面准备好再把控制权交给它。
         // 框架写死 test-world 有两个问题：换游戏必须改框架；
         // 而且「章节还没跑」和「章节跑完了」两种状态看起来是同一张图，
         // 分不清世界到底是章节挂上的还是框架自作主张挂的。
@@ -264,15 +263,10 @@ public class GameInstance {
         // 章节由总导演从起始章节开始跑 —— 与「进了哪张地图」无关。
         // 放在循环启动之后，保证剧情开始时 UI / 渲染都已就绪。
         //
-        // 先快速落幕再交给章节调度器：
-        //   · 玩家点「开始游戏」之后画面立刻暗下来（快，不是慢悠悠地黑屏）；
-        //   · 幕布背后就是「加载页面」（黑底 + 加载指示器），
-        //     需要世界的章节在幕布后面加载完毕后才亮幕 —— 玩家不会看到
-        //     「先空一下、地图突然出现」那一帧；
-        //   · ChapterDirector.start() 返回的 future 在过场结束后才继续跑章节，
-        //     且它内部还会再等一次「世界加载 + 亮幕」，所以这里不 await 也不会
-        //     让剧情抢在画面之前开始。
-        worldMap.curtainDownFast();
+        // 这里【不】预先落幕：章节声明要世界时，ChapterDirector 会先准备好加载页面
+        // （落幕 + 加载指示器）再把控制权交给章节；紧接着章节调用
+        // s.enterWorld(...) 完成「加载世界 → 亮幕」。
+        // 也就是说「玩家点开始游戏之后看到什么」由章节决定，框架不抢跑。
         com.xiaowu.game.starveil.game.story.ChapterDirector.getInstance().start();
     }
 
@@ -447,13 +441,18 @@ public class GameInstance {
 
         // 从「没有世界」进入世界时的过场：
         //   落幕(等) → 停顿 → 挂载世界（这段时间就是真正的加载）→ 停顿 → 亮幕(等)
-        // future 在亮幕动画结束后才完成，所以调用方可以放心地认为
-        // 「世界已就绪且画面已经亮起来」，之后才继续跑章节。
+        //
+        // future 在<b>亮幕动画结束后</b>才完成，所以调用方（章节脚本里的
+        // s.enterWorld）可以放心地认为「世界已就绪，画面也已经亮起来」，
+        // 之后的对话不会出现在黑屏上。
+        //
+        // 幕布可能已经放下了（章节过场、进游戏），此时再落幕一次是幂等的：
+        // 从当前不透明度渐到 1，已经在 1 就瞬间完成。
         javafx.application.Platform.runLater(() -> {
             if (inputHandler != null) {
                 inputHandler.lockControls(InputHandler.LOCK_MAP_TRANSITION);
             }
-            worldMap.curtainDownFast()
+            worldMap.curtainDown()
                     .thenCompose(ignored -> WorldMap.curtainPause())
                     .thenCompose(ignored -> {
                         try {
@@ -568,58 +567,36 @@ public class GameInstance {
     }
 
     /**
-     * 章节之间的过场：落幕（等动画结束）→ 卸下世界 → 亮幕（等动画结束）。
+     * 章节过场的「落幕」：把幕布放下并在动画结束后完成。
      *
-     * <p>卸下世界是为了让下一章从干净的状态开始：它可能只要视觉小说
-     * （那就不该有残留的世界），也可能要另一张图（那就由它自己加载）。
-     * 把「卸下」放在这里、而不是让下一章自己处理，是因为此刻画面已经被幕布盖住，
-     * 是唯一不会露出中间态的时机。
+     * <p><b>不卸下世界</b> —— 卸不卸由下一章的 {@code mode()} 决定
+     * （要世界就接着用，只要视觉小说就由 {@code ChapterDirector.ensureMode}
+     * 卸掉）。控制权在本方法返回后交给下一章。
      *
-     * <p>返回的 future 在亮幕结束后完成 —— 期间控制权不交给下一章，
-     * 所以下一章的脚本不会在画面还在切换时就开始播。
+     * <p>返回的 future 在落幕动画结束、可以继续跑本章脚本时完成。
      */
-    public java.util.concurrent.CompletableFuture<Void> curtainDownAndUnloadWorld() {
-        if (modeTransitioning) {
-            Logger("WARN", "过场进行中，忽略重复的章节过场请求");
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+    public java.util.concurrent.CompletableFuture<Void> curtainDownForChapter() {
+        if (inputHandler != null) {
+            inputHandler.lockControls(InputHandler.LOCK_MAP_TRANSITION);
         }
-        modeTransitioning = true;
-        java.util.concurrent.CompletableFuture<Void> future = new java.util.concurrent.CompletableFuture<>();
+        // 章节过场期间幕布背后是加载页面：保持 HUD 隐藏
+        return worldMap.curtainDown();
+    }
 
-        javafx.application.Platform.runLater(() -> {
-            if (inputHandler != null) {
-                inputHandler.lockControls(InputHandler.LOCK_MAP_TRANSITION);
-            }
-            worldMap.curtainDown()
-                    .thenCompose(ignored -> {
-                        try {
-                            worldMap.unloadWorld();
-                            playerEntity = -1;
-                            worldLoaded = false;
-                            viewport.setStyle("-fx-background-color: black;");
-                            GameUI.getInstance().hide();
-                            Logger("INFO", "章节过场：世界已卸下，等待下一章决定世界/模式");
-                        } catch (Exception ex) {
-                            Logger("ERROR", "章节过场卸下世界失败: " + ex.getMessage());
-                        }
-                        return WorldMap.curtainRevealPause();
-                    })
-                    .thenCompose(ignored -> worldMap.curtainUp())
-                    .whenComplete((ignored, ex) -> {
-                        if (inputHandler != null) {
-                            inputHandler.unlockControls(InputHandler.LOCK_MAP_TRANSITION);
-                        }
-                        modeTransitioning = false;
-                        if (ex != null) {
-                            Logger("ERROR", "章节过场失败: " + ex.getMessage());
-                            future.completeExceptionally(ex);
-                        } else {
-                            future.complete(null);
-                        }
-                    });
-        });
-
-        return future;
+    /**
+     * 章节过场的「亮幕」：把幕布拉开并在动画结束后完成。
+     *
+     * <p>由章节侧在「世界已经就绪」之后调用（通常是 {@code s.enterWorld(...)}
+     * 的一部分），所以正常情况下章节作者不需要直接碰它。
+     */
+    public java.util.concurrent.CompletableFuture<Void> curtainUpForChapter() {
+        return WorldMap.curtainRevealPause()
+                .thenCompose(ignored -> worldMap.curtainUp())
+                .whenComplete((ignored, ex) -> {
+                    if (inputHandler != null) {
+                        inputHandler.unlockControls(InputHandler.LOCK_MAP_TRANSITION);
+                    }
+                });
     }
 
     /** 玩家三项资源重置（新游戏 / 复活）。 */

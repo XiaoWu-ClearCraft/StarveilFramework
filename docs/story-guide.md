@@ -64,56 +64,63 @@ com.xiaowu.game.starveil.content.init.init
 
 ### 章节与世界的加载时机
 
-**世界必须在章节脚本开始跑之前加载好**，否则玩家会先看到加载页面、
-然后地图才「啪」地出现。而章节代码本身来不及做这件事 ——
-它刚开始跑的时候画面已经该是就绪的了。所以用**声明**的方式：
+**去哪张图，永远由章节自己决定** —— 框架不猜。声明 `NORMAL` 的章节，
+第一件事就是自己把世界加载起来：
 
 ```java
 public class Chapter1 implements StoryChapter {
-    @Override public ChapterMode mode()  { return ChapterMode.NORMAL; }
-    @Override public String world()      { return "starveil:data/worlds/first.json"; }
+    private static final String WORLD = "starveil:data/worlds/first.json";
+
+    @Override public ChapterMode mode() { return ChapterMode.NORMAL; }
+
+    @Override public void write(StoryScript s) {
+        s.enterWorld(WORLD);   // ← 先加载世界
+        s.say("霁雾", "到了。");  // ← 这行一定在世界亮起来之后才执行
+    }
 }
 ```
 
-`mode()` 与 `world()` 都在**加载世界之前**被读取，所以实现里不要有副作用。
+**`s.enterWorld(...)` 是阻塞的，而且会等到亮幕动画结束才返回。**
+这就是「淡入和对话不同时开始」的保证：它返回时画面已经亮了，
+后面的台词不可能出现在黑屏上。
 
-框架拿到这两个值之后的流程：
+### 从主界面 / 上一章切进来的时间线
 
 ```
-点开始游戏 → 快速落幕 → 加载页面 → 加载世界 → 停顿 → 亮幕 → 章节脚本开跑
+点开始游戏（或上一章结束）
+  → 落幕（等动画结束）
+  → 加载页面：黑幕 + 加载指示器
+  → 控制权交给本章脚本，脚本开始跑
+  → 本章调 s.enterWorld(...)：挂载世界 → 停顿 → 亮幕（等动画结束）
+  → 之后的对话与演出
 ```
 
-**亮幕动画结束之前，章节脚本不会开始执行** —— 每次过场都是可等待的
-（`CompletableFuture`），所以剧情不会在黑幕还没拉完时就开始播。
+注意**控制权在「加载页面出现之后」就已经在本章手里了**，
+所以「加载哪张图」完全由本章的 `enterWorld(...)` 决定。
 
-| 情况 | 框架行为 |
+| 章节声明 | 框架做什么 |
 |---|---|
-| `mode()` 要世界 + `world()` 给了图 | 亮幕前把这张图加载好 |
-| `mode()` 要世界 + `world()` 返回 null | 用内容在 `ContentConfig.setStartWorld(...)` 里给的起始世界 |
-| 两者都没有 | **不猜**（猜错等于把玩家丢进不相干的图）：记 ERROR，停在加载页面，等章节自己 `s.enterWorld(...)` |
-| `mode()` 只要视觉小说 | 不加载世界；幕布背后是黑的，由章节用 `s.image(...)` 铺背景 |
+| `NORMAL` 且当前已有世界 | 什么都不做：接着用当前世界（要换图自己 `enterWorld`） |
+| `NORMAL` 且当前没有世界 | 准备好加载页面，然后交权 —— 由章节 `enterWorld` 完成加载 |
+| `VISUAL_NOVEL` | 卸下世界（如果之前有），脚本从干净的黑幕开始，通常紧接着 `s.image(...)` 铺背景 |
 
 **没有世界时不显示 HUD**（血条 / 体力条 / 背包槽都围着「地图上有个玩家」存在），
 这一点由框架统一拦，不需要内容操心。
 
 ### 章节之间的过场
 
-一章结束后进入下一章时，框架会：
+一章结束后进入下一章时，框架先**落幕**再把控制权交给下一章
+（不卸下世界 —— 卸不卸由下一章的 `mode()` 决定，见上表）：
 
 ```
-落幕（等动画）→ 卸下世界 → 亮幕（等动画）→ 下一章开跑
+上一章结束 → 落幕（等动画）→ 下一章脚本开跑（画面是加载页面）
 ```
 
-「卸下世界」放在这里、而不是让下一章自己处理，是因为此刻画面已经被幕布盖住，
-是唯一不会露出中间态的时机。之后由**下一章自己**决定要世界还是只要视觉小说
-（同上表）。
+两种情况会跳过过场，不白白黑一次屏：
 
-两种情况会跳过这段过场，不白白黑一次屏：
-
-- 下一章也要世界、而当前已经有世界（卸了再装只是闪烁；换图由章节自己
-  `s.enterWorld(...)`）；
-- 特殊键 `starveil:chapter_fade` 被设为 `false`（见
-  [数据键](data-keys.md)）。
+- 下一章也要世界、而当前已经有世界（接着用就行）；
+- 上一章是纯视觉小说（本来就在黑幕上）；
+- 特殊键 `starveil:chapter_fade` 被设为 `false`（见 [数据键](data-keys.md)）。
 
 > **教程需要世界。** 在没有世界时启动教程（`TutorialManager.startTutorial()`）
 > 会记一条 ERROR 并忽略本次请求 —— 教程要求玩家在地图上走动，
@@ -367,19 +374,18 @@ s.keepRunningDuringStory(NpcSystem.class);
 切换章节时，`ChapterDirector` 会**自动**把运行模式调整到章节声明的那一种 ——
 章节作者不需要关心「现在世界加载了没有」。
 
-从 **NORMAL 切到 VISUAL_NOVEL** 时，走的是<b>和切换地图完全相同的过场</b>，
-唯一的区别是<b>不加载新地图</b>：
+从 **NORMAL 切到 VISUAL_NOVEL** 时是这样（整个过程可等待，动画结束才继续）：
 
 ```
 1. lockControls(LOCK_MAP_TRANSITION)
-2. 渐入黑幕                      worldMap.fadeToBlack()
-3. 停顿 500ms
-4. 卸下世界                      worldMap.unloadWorld()
+2. 落幕                          worldMap.curtainDown()      ← 等动画结束
+3. 卸下世界                      worldMap.unloadWorld()
    - 清空地图、销毁全部实体、连玩家视图也摘掉
    - playerEntity = -1，worldLoaded = false，视口变纯黑
-5. 停顿 300ms
-6. 渐出黑幕                      worldMap.fadeFromBlack()
-7. unlockControls(LOCK_MAP_TRANSITION)
+   - HUD 隐藏（没有世界就没有血条的意义）
+4. 停顿 220ms（给渲染管线时间）
+5. 亮幕                          worldMap.curtainUp()        ← 等动画结束
+6. unlockControls(LOCK_MAP_TRANSITION)
 ```
 
 对比 `WorldMap.switchMap()`：少了「`initialize()` + `loadFromFile()` + 设置玩家位置」，
@@ -420,14 +426,15 @@ GameInstance.getCurrentInstance().isWorldLoaded();
 硬要自动恢复就得额外维护世界状态快照（什么时候抓、抓多少、失效怎么办）。
 而章节天然知道自己要去哪 —— 把选择权交给它，整条链路都简单了。
 
-`enterWorld` 内部走的是与 `switchMap` 相同的过场：
+`enterWorld` 内部走的是同一套可等待的过场：
 
 ```
-lockControls → fadeToBlack → 500ms → mountWorld() → 300ms → fadeFromBlack → unlockControls
+lockControls → 落幕(等) → 停顿 → mountWorld() → 停顿 → 亮幕(等) → unlockControls
 ```
 
-它返回时世界已经挂好（地图加载、玩家创建、法阵/拾取提示/调试 UI 重建、
-相机居中），章节直接接着往下写即可。
+**它返回时「世界已挂好」且「幕布已经拉开」**（地图加载、玩家创建、
+法阵/拾取提示/调试 UI 重建、相机居中），所以紧接着的对话不会出现在黑屏上 ——
+这正是「淡入和对话不同时开始」的实现方式。
 
 > **`mountWorld()` 与游戏启动时建世界是同一条代码路径**，所以不会出现
 > 「启动能跑、中途切回来缺东西」这种漂移。
