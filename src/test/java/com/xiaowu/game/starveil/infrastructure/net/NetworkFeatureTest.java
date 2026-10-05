@@ -247,6 +247,40 @@ class NetworkFeatureTest {
     }
 
     @Test
+    void theDefaultIntervalIsAutomatic() {
+        // 默认不写死数字：问系统时问得勤（本地调用），自己发 TCP 探测时问得省
+        long configured = NetworkStatus.intervalSeconds();
+        try {
+            NetworkStatus.setIntervalSeconds(NetworkStatus.AUTO_INTERVAL);
+            assertEquals(NetworkStatus.AUTO_INTERVAL, NetworkStatus.intervalSeconds());
+            NetworkStatus.setIntervalSeconds(-99);
+            assertEquals(NetworkStatus.AUTO_INTERVAL, NetworkStatus.intervalSeconds(), "负数一律当自动");
+            NetworkStatus.setIntervalSeconds(17);
+            assertEquals(17, NetworkStatus.intervalSeconds());
+        } finally {
+            NetworkStatus.setIntervalSeconds(configured);
+        }
+    }
+
+    @Test
+    void systemInternetStateCanBeQueriedWithoutThrowing() {
+        // 结果三种都合法：true / false / null（拿不到系统结论时），这里只要求「能问、不炸」
+        WindowsInternetState.isAvailable();
+        WindowsInternetState.isConnectedToInternet();
+        WindowsInternetState.isConnected();
+        WindowsInternetState.connectivityFlags();
+        WindowsInternetState.hasInternetFlag();
+        assertTrue(!NetworkStatus.sourceName().isEmpty());
+    }
+
+    @Test
+    void probeUsesTheSystemConclusionWhenTheSystemCanAnswer() {
+        // 只在系统能给结论时跑：这条路上探测是纯本地调用，不发网络包
+        org.junit.jupiter.api.Assumptions.assumeTrue(WindowsInternetState.isAvailable());
+        NetworkStatus.probeOnce();
+    }
+
+    @Test
     void eventDrivenModeIsOffUntilStarted() {
         // 没启动就不该声称在用事件（测试里刻意不去发真实网络请求）
         assertFalse(NetworkStatus.isEventDriven());

@@ -31,20 +31,27 @@ import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logg
  * Windows 提供了 {@code NotifyIpInterfaceChange}（iphlpapi）—— 注册一次回调，
  * 接口 up/down 时系统主动通知，于是<b>插拔网线、开关 WiFi 会立刻被察觉</b>。
  *
- * <h2>为什么还留一个慢速轮询</h2>
+ * <h2>为什么还留一个轮询</h2>
  * 因为「接口事件」和「能不能上互联网」不是一回事：最典型的是路由器活着但 WAN 断了
  * （网线还插着、WiFi 还连着），这时接口没有任何变化、事件不会触发 ——
  * 只看事件的话，「断网提示」要等到玩家真的发请求失败才会出现。
- * 所以：事件负责「秒级反应」，慢速轮询（默认 30 秒，可关）负责兜住这种静默断网。
+ * 所以：事件负责「秒级反应」，轮询负责兜住这种静默断网。
  *
- * <p>非 Windows 平台（或 iphlpapi 调用失败）自动退回纯轮询，并在日志里说明。
+ * <p>非 Windows 平台（或 iphlpapi 调用失败）自动退回纯 TCP 轮询，并在日志里说明。
  *
  * <h2>怎么判断「联网」</h2>
- * 无论由谁触发，判断方式都一样：<b>真的 TCP 连一个公网地址</b>。本地问不出来 ——
- * 网卡有地址只说明连着路由器，{@code InetAddress.isReachable} 又常被防火墙静默丢掉。
+ * 优先问 Windows 自己：{@link WindowsInternetState}（网络列表管理器 NLM）
+ * 给出的就是任务栏「有网 / 无 Internet」图标的那个结论，能区分
+ * <b>「有网络但没互联网」</b>（连着路由器/热点，但出不去）这种情况。
+ * 它是本地 COM 调用，不发网络包，所以可以问得很勤（自动模式 5 秒一次）。
+ *
+ * <p>NLM 不可用时（非 Windows、COM 创建失败）才退回
+ * <b>真的 TCP 连一个公网地址</b>：网卡有地址只说明连着路由器，
+ * {@code InetAddress.isReachable} 又常被防火墙静默丢掉，只能真连。
  * 默认端点是公网 DNS 的 443（{@code 223.5.5.5} / {@code 1.1.1.1} / {@code 8.8.8.8}）：
  * 纯 IP 不需要先解析域名（断网时那一步会先失败，反而看不出是谁的问题），
- * 任意一个连上就算在线，国内国外都能用。
+ * 任意一个连上就算在线，国内国外都能用。这条路的间隔默认拉长到
+ * {@value #DEFAULT_TCP_INTERVAL_SECONDS} 秒 —— 它是要发网络包的，不该问太勤。
  *
  * <h2>线程</h2>
  * 探测在后台守护线程上跑，结果放 volatile 字段；<b>任何查询都不阻塞调用方</b>。
@@ -64,13 +71,15 @@ public final class NetworkStatus {
     /** 默认探测端点：公网 DNS 的 443 端口，纯 IP 不需要解析域名。 */
     private static final String[] DEFAULT_ENDPOINTS = {"223.5.5.5:443", "1.1.1.1:443", "8.8.8.8:443"};
 
-    /** 慢速兜底轮询间隔（秒）；0 = 关掉轮询，只靠接口事件。 */
-    private static final long DEFAULT_INTERVAL_SECONDS = 30;
+    /** 自动模式的兜底轮询间隔：问系统（NLM）时问得勤，自己发 TCP 探测时问得省。 */
+    public static final long AUTO_INTERVAL = -1;
+    private static final long SYSTEM_INTERVAL_SECONDS = 5;
+    private static final long DEFAULT_TCP_INTERVAL_SECONDS = 30;
     private static final int DEFAULT_TIMEOUT_MS = 2500;
 
     private static volatile State state = State.UNKNOWN;
     private static volatile List<Endpoint> endpoints = parseEndpoints(DEFAULT_ENDPOINTS);
-    private static volatile long intervalSeconds = DEFAULT_INTERVAL_SECONDS;
+    private static volatile long intervalSeconds = AUTO_INTERVAL;
     private static volatile int timeoutMs = DEFAULT_TIMEOUT_MS;
 
     private static final List<Consumer<State>> listeners = new CopyOnWriteArrayList<>();
@@ -95,16 +104,45 @@ public final class NetworkStatus {
             t.setDaemon(true);   // 守护线程：不该拦住游戏退出
             return t;
         });
-        // 先测一次，别让玩家等第一个轮询周期
-        executor.execute(NetworkStatus::probeAndPublish);
-        long interval = intervalSeconds;
-        if (interval > 0) {
-            executor.scheduleWithFixedDelay(NetworkStatus::probeAndPublish, interval,
-                    interval, TimeUnit.SECONDS);
-        }
+        // 先测一次，别让玩家等第一个轮询周期；顺便在这一次里完成 NLM 初始化
+        executor.execute(() -> {
+            probeAndPublish();
+            schedulePollingIfWanted();
+        });
         startInterfaceWatcher();
-        Logger("DEBUG", "联网探测已启动: " + endpoints
-                + (interval > 0 ? "，兜底轮询 " + interval + "s" : "，仅接口事件触发"));
+    }
+
+    /**
+     * 排兜底轮询。放在第一次探测之后，是因为间隔取决于「问系统还是自己探测」——
+     * 这要等 {@link WindowsInternetState} 试过 COM 才定得下来。
+     */
+    private static void schedulePollingIfWanted() {
+        long interval = effectiveIntervalSeconds();
+        ScheduledExecutorService e = executor;
+        if (e == null) {
+            return;
+        }
+        if (interval <= 0) {
+            Logger("INFO", "联网状态不轮询，只靠接口事件与手动 checkNow()");
+            return;
+        }
+        e.scheduleWithFixedDelay(NetworkStatus::probeAndPublish, interval, interval, TimeUnit.SECONDS);
+        Logger("INFO", "联网判定来源: " + sourceName() + "，兜底轮询 " + interval + "s");
+    }
+
+    /** 实际用的轮询间隔：显式设置优先，自动模式下按判定来源选。 */
+    private static long effectiveIntervalSeconds() {
+        long configured = intervalSeconds;
+        if (configured != AUTO_INTERVAL) {
+            return configured;
+        }
+        return WindowsInternetState.isAvailable() ? SYSTEM_INTERVAL_SECONDS : DEFAULT_TCP_INTERVAL_SECONDS;
+    }
+
+    /** 当前判定来源的可读名字。 */
+    public static String sourceName() {
+        return WindowsInternetState.isAvailable() ? "Windows 系统联网状态（NLM，本地调用）"
+                : "TCP 探测（" + endpoints + "）";
     }
 
     /** 停止探测（注销系统回调）。一般不需要调。 */
@@ -113,6 +151,14 @@ public final class NetworkStatus {
         ScheduledExecutorService e = executor;
         executor = null;
         if (e != null) {
+            // COM 对象绑定在创建它的线程上，所以在探测线程上释放了再收线程
+            e.execute(WindowsInternetState::release);
+            e.shutdown();
+            try {
+                e.awaitTermination(1, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
             e.shutdownNow();
         }
         InterfaceChangeWatcher watcher = interfaceWatcher;
@@ -180,15 +226,22 @@ public final class NetworkStatus {
     }
 
     /**
-     * 设置兜底轮询间隔（秒）；<b>传 0 表示关掉轮询</b>，只靠接口事件触发。
+     * 设置兜底轮询间隔（秒）。
      *
-     * <p>关掉之前请先想清楚：路由器活着但 WAN 断了这种「静默断网」不再有事件，
+     * <ul>
+     *   <li>{@link #AUTO_INTERVAL}（默认）：自动 —— 问系统（NLM）时 5 秒一次，
+     *       自己发 TCP 探测时 30 秒一次；</li>
+     *   <li>{@code 0}：<b>关掉轮询</b>，只靠接口事件 + 手动 {@link #checkNow()}。</li>
+     * </ul>
+     *
+     * <p>关掉之前请先想清楚：路由器活着但 WAN 断了这种「静默断网」不一定有事件，
      * 状态要等到下一次 {@link #checkNow()}（或玩家真发请求失败）才会更新。
      */
     public static void setIntervalSeconds(long seconds) {
-        intervalSeconds = Math.max(0, seconds);
+        intervalSeconds = seconds < 0 ? AUTO_INTERVAL : seconds;
     }
 
+    /** 配置的轮询间隔：{@link #AUTO_INTERVAL} 表示自动（见 {@link #setIntervalSeconds}）。 */
     public static long intervalSeconds() {
         return intervalSeconds;
     }
@@ -324,8 +377,15 @@ public final class NetworkStatus {
         return next == State.ONLINE ? "（已恢复）" : "（已断开）";
     }
 
-    /** 探测一次：任意一个端点能连上就算在线。 */
+    /** 探测一次：先信系统结论，系统答不上来才自己 TCP 连。 */
     static boolean probeOnce() {
+        Boolean system = WindowsInternetState.isConnectedToInternet();
+        if (system == null) {
+            system = WindowsInternetState.hasInternetFlag();
+        }
+        if (system != null) {
+            return system;
+        }
         for (Endpoint ep : endpoints) {
             if (probeEndpoint(ep)) {
                 return true;

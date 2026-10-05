@@ -4,7 +4,7 @@
 
 | 能力 | 入口 | 触发方式 |
 |---|---|---|
-| 是否联网 | `NetworkStatus` | Windows 接口事件 + 慢速兜底轮询 |
+| 是否联网 | `NetworkStatus` | Windows 系统联网状态（本地）+ 接口事件 + 兜底轮询 |
 | 断网提示（强制） | `ui.overlay.OfflinePrompt` | 需要内容开启 |
 | 可信时间 | `TrustedTime` | 启动/需要时联网同步一次 |
 | IP 属地（市级） | `IpLocation` | 启动时查一次，只放内存 |
@@ -31,26 +31,43 @@ NetworkStatus.addListener(state -> {   // 状态变化（在探测线程上，�
 Windows 上框架用 JNA 调 `NotifyIpInterfaceChange`（iphlpapi）注册一个回调：
 **插拔网线、开关 WiFi 这类接口变化会立刻触发重测**，不用等轮询周期。
 
-但仍然保留一个**慢速兜底轮询**（默认 30 秒），原因是「接口事件」不等于「能上互联网」：
+但仍然保留一个**兜底轮询**，原因是「接口事件」不等于「能上互联网」：
 最典型的是**路由器活着但 WAN 断了**（网线还插着、WiFi 还连着）—— 这时接口没有任何变化、
 事件不会触发，只看事件的话「断网提示」要等到玩家真的发请求失败才出现。
 
+轮询间隔默认是**自动**的，取决于判定来源（下面一节）：问 Windows 时 5 秒一次
+（纯本地调用，几乎不花钱），自己发 TCP 探测时 30 秒一次（要发网络包，不能太勤）。
+
 ```java
-ContentConfig.setNetworkEndpoints("223.5.5.5:443", "1.1.1.1:443");
-NetworkStatus.setIntervalSeconds(30);   // 传 0 = 关掉轮询，只靠接口事件
+ContentConfig.setNetworkEndpoints("223.5.5.5:443", "1.1.1.1:443");  // 只在退回 TCP 探测时用
+NetworkStatus.setIntervalSeconds(30);      // 想写死就写死
+NetworkStatus.setIntervalSeconds(0);       // 关掉轮询，只靠接口事件
+NetworkStatus.setIntervalSeconds(NetworkStatus.AUTO_INTERVAL);   // 默认值：自动
 ```
 
-（`NetworkStatus.setIntervalSeconds(0)` 也能用，但要接受上面那个静默断网的代价。）
-
-非 Windows 平台或 iphlpapi 注册失败时自动退回纯轮询，日志里会说明。
+非 Windows 平台、或系统联网状态拿不到时，自动退回纯 TCP 轮询，
+日志里会写清楚当前用的是哪一种（`联网判定来源: ...`）。
 
 ### 怎么判断「能上互联网」
 
-真的去 **TCP 连一个公网地址**。本地问不出来 —— 网卡有地址只说明连着路由器，
-`InetAddress.isReachable` 又经常被防火墙静默丢掉。默认端点是公网 DNS 的 443 端口
+**优先问 Windows 自己**：`WindowsInternetState` 通过 COM 拿
+`INetworkListManager`（网络列表管理器）的结论 —— 就是任务栏那个
+「有网 / 无 Internet」图标背后的数据源（NCSI）。它能区分
+**「有网络但没互联网」**：连着路由器或热点、但出不去，这种情况
+「网卡有地址」和「TCP 连不上」是两种不同的解释，系统给出的答案是明确的。
+
+这是个**本地 COM 调用，不发网络包**，所以可以问得比 TCP 探测勤得多（自动模式下 5 秒一次）。
+
+拿不到系统结论时（非 Windows、COM 创建失败），才退回
+**真的去 TCP 连一个公网地址**：默认端点是公网 DNS 的 443 端口
 （`223.5.5.5` / `1.1.1.1` / `8.8.8.8`）：纯 IP 不需要先解析域名
 （断网时那一步会先失败，反而看不出是谁的问题），任何一个能连上就算在线，
 国内国外都可用。
+
+> **它是「Windows 的判定」，不是绝对真理**：NCSI 自己也有探测周期，刚断的瞬间可能还显示有网
+> （任务栏图标同理）；反过来，公司代理 / 强制门户环境下 NCSI 可能判「无 Internet」，
+> 而玩家的游戏其实连得上。所以框架把它当**首选信号**而不是唯一信号，
+> 并且给断网提示留了特殊键（见下一节）。
 
 > **首次探测出结果前 `isOnline()` 返回 `true`。** 宁可先当「有网」，
 > 也不要在还没测出来的那几百毫秒里给玩家弹一个「你没网」。
@@ -71,6 +88,10 @@ ContentConfig.setOfflineBypassKey("F8");       // 可选，默认就是 F8
 一旦判断错了，玩家就被一个永不消失的弹窗关在门外 —— 那比断网本身严重得多。
 
 提示挂在**场景根**上（不是画布里的 modalHost），所以主菜单阶段也会提示。
+
+**怎么测**：拔网线 / 关 WiFi / 断路由器的 WAN，然后看任务栏图标 ——
+两者应该同时变（框架问的就是同一个数据源）。日志里会有
+`联网状态: OFFLINE（已断开）`，启动时还会写一行 `联网判定来源: ...`。
 
 ## 3. 可信时间：`TrustedTime`
 
