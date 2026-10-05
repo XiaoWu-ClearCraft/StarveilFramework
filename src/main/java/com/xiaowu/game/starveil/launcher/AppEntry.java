@@ -107,6 +107,13 @@ public class AppEntry {
             // 甚至整局都不联网，游戏拿到的也不是玩家可以随手改的本机时钟。
             com.xiaowu.game.starveil.infrastructure.net.TrustedTime.loadFromConfig();
 
+            // 联网探测：Windows 上会注册「网络接口变化」回调，插拔网线/开关 WiFi 立刻重测，
+            // 另配一个慢速兜底轮询（路由器活着但 WAN 断了这种静默断网没有接口事件）。
+            com.xiaowu.game.starveil.infrastructure.net.NetworkStatus.start();
+
+            // IP 属地：启动时查一次并只放内存（不落盘）。查不到就是 null，不猜。
+            com.xiaowu.game.starveil.infrastructure.net.IpLocation.prefetchAsync();
+
             // 界面语言：同样必须在内容初始化之后 —— 内容是通过
             // ContentConfig.addLanguage() 才登记可选语言的，早于那一步就
             // 无从校验存下来的偏好是否仍然可用。

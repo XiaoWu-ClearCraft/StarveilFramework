@@ -170,17 +170,18 @@ public final class FrameworkDataKeys {
     // ==================== 可信时间（全局） ====================
 
     /**
-     * 时间校正量：可信时间 − 本机时间（毫秒）。
+     * 时间基准：上次联网同步取回的可信时间戳（毫秒）。
      *
-     * <p>由 {@code TrustedTime} 在联网同步成功后写入，这样下次启动即使还没联网，
-     * 也能先沿用上一次的校正量，而不是直接相信玩家可以随手改的本机时钟。
+     * <p>和 {@link #TRUSTED_TIME_BASE_WALL} 配对存下来，下次启动就能接着往下算：
+     * 可信时间 = 本基准 + （本机时钟走过的这段时间）。所以一次运行内玩家改系统时间无效，
+     * 跨重启改时间才会影响它（直到重新联网同步）。
      */
-    public static final DataKey<Long> TRUSTED_TIME_OFFSET =
-            DataManager.defineLong("starveil", "trusted_time_offset", 0L);
+    public static final DataKey<Long> TRUSTED_TIME_BASE =
+            DataManager.defineLong("starveil", "trusted_time_base", 0L);
 
-    /** 上次同步时间时的<b>本机</b>时间戳（毫秒）；用于说明这个校正量有多旧。 */
-    public static final DataKey<Long> TRUSTED_TIME_SYNCED_AT =
-            DataManager.defineLong("starveil", "trusted_time_synced_at", 0L);
+    /** 记下上面那个基准时的<b>本机时钟</b>毫秒值；用来说明这份基准有多旧、并补上跨重启的时间差。 */
+    public static final DataKey<Long> TRUSTED_TIME_BASE_WALL =
+            DataManager.defineLong("starveil", "trusted_time_base_wall", 0L);
 
     /** 聊天记录是否跨章节保留，默认<b>不保留</b>（章节切换即清空）。 */
     public static final DataKey<Boolean> CHAT_HISTORY_KEEP_CHAPTERS =
