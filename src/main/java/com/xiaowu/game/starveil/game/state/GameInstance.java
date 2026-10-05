@@ -754,7 +754,8 @@ public class GameInstance {
         root.prefWidthProperty().bind(gameContainer.widthProperty());
         root.prefHeightProperty().bind(gameContainer.heightProperty());
         overlayHost().getChildren().add(root);
-        GameUI.getInstance().hide();
+        // 与暂停菜单/设置/存档读档一样：覆盖层加在 overlayHost（逻辑画布最顶层）上，
+        // 本身就盖住视口，不需要把 HUD 藏起来 —— 藏了再显示回来只会让血条闪一下。
         worldMap.setPaused(true);
         magicCircleAttack.setPaused(true);
         BGMManager.getInstance().pauseBGM();
@@ -782,10 +783,7 @@ public class GameInstance {
         worldMap.setPaused(false);
         magicCircleAttack.setPaused(false);
         BGMManager.getInstance().resumeBGM();
-        if (!isPaused && !isDead && !isSettingOpen) {
-            GameUI.getInstance().attachToGame();
-            GameUI.getInstance().show();
-        }
+        // HUD 没被藏过，这里不需要显示回来（见 openBackpack 的说明）
         // 更新手上物品显示
         updateHandSlotDisplay();
     }

@@ -47,11 +47,18 @@ public class GameManager {
     private static final boolean SCALE_FILL_WINDOW = false;
     /** 当前承载“逻辑内容 + 覆盖层”的画布（经 Scale 缩放到窗口）。 */
     private StackPane logicalCanvas;
-    /** 包裹画布的 Group：不参与父容器 resize，保证父容器 min 尺寸不被逻辑画布撑大。 */
+    /** 当前画布的逻辑宽度（= 高度 × 宽高比），缩放前先算一次存下来。 */
+    private double logicalWidth = Math.round(LOGICAL_HEIGHT * 16.0 / 9.0);
+    /**
+     * 包裹画布的缩放层（Group）：不参与父容器的尺寸分配，
+     * 保证父容器的 min 尺寸不会被逻辑画布顶大（窗口才能缩到比逻辑尺寸小）。
+     */
     private javafx.scene.Group scaleWrapper;
     /** 逻辑画布内的“最顶层”宿主：暂停/存档/死亡/弹窗等盖在最上（含对话框上方）。 */
     private StackPane modalHost;
     private double lastScale = -1;
+    /** 已经挂过「尺寸变化 → 重算缩放」监听的 Scene（避免重复挂）。 */
+    private Scene sceneResizeBound;
 
     // 保存窗口状态（用于无边框窗口模式）
     private double previousWindowX = 0;
@@ -101,6 +108,11 @@ public class GameManager {
 
         rootContainer = new StackPane();
         rootContainer.setStyle("-fx-background-color: black;");
+        // StackPane 的 max 尺寸默认等于自己的 pref，而 pref 会被子节点（逻辑画布 1920×1080）
+        // 顶成固定值 —— 窗口比它更大时，多出来的部分就露出【场景的白色底】，
+        // 看起来就是「画面偏左、右边一条留白」。这里明确让它随窗口铺满。
+        rootContainer.setMinSize(0, 0);
+        rootContainer.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
 
 
         // 注意: 通知和弹窗容器不在这里初始化,因为此时RenderEngine还未设置
@@ -128,6 +140,7 @@ public class GameManager {
             mountContent(originalRoot, true);
 
             Logger("DEBUG", "游戏管理器初始化完成 - 逻辑画布 + 窗口缩放");
+            bindSceneResize(scene);
         }
         stage.setFullScreenExitKeyCombination(KeyCombination.NO_MATCH);
         initializeCloseHandler();
@@ -164,6 +177,7 @@ public class GameManager {
      */
     private StackPane buildLogicalCanvas(Pane content) {
         double logicalWidth = Math.round(LOGICAL_HEIGHT * aspectRatio);
+        this.logicalWidth = logicalWidth;
         StackPane canvas = new StackPane();
         canvas.setStyle("-fx-background-color: black;");
         canvas.setPrefSize(logicalWidth, LOGICAL_HEIGHT);
@@ -209,8 +223,11 @@ public class GameManager {
     private void mountContent(Pane contentRoot, boolean clearExtras) {
         if (contentWithOverlays == null) return;
 
-        // 父容器不要被逻辑画布的最小尺寸撑大，否则窗口无法缩到比逻辑尺寸小
+        // 父容器不要被逻辑画布的最小尺寸撑大，否则窗口无法缩到比逻辑尺寸小；
+        // 但同时必须能随窗口拉伸 —— 不然 updateContentScale 量到的「可用区域」
+        // 是画布的逻辑尺寸而不是窗口尺寸，缩放会一直停在旧值（进游戏后留黑边就是这么来的）。
         contentWithOverlays.setMinSize(0, 0);
+        contentWithOverlays.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
 
         if (clearExtras) {
             contentWithOverlays.getChildren().clear();
@@ -220,6 +237,9 @@ public class GameManager {
         }
 
         logicalCanvas = buildLogicalCanvas(contentRoot);
+        // 缩放层用 Group：它不参与父容器的尺寸分配，父容器的 min 尺寸不会被逻辑画布顶大。
+        // 上一版我曾把它换成 StackPane，结果支点算错（Region 会缩到窗口大小，
+        // 而 Scale 的支点仍是逻辑中心）把画面整体推偏 —— 那是个自己造的 bug，已回退。
         scaleWrapper = new javafx.scene.Group(logicalCanvas);
         // 画布始终放最底层，弹窗/菜单等覆盖层保持在它上方
         contentWithOverlays.getChildren().add(0, scaleWrapper);
@@ -238,13 +258,25 @@ public class GameManager {
         }
         updateContentScale();
         contentWithOverlays.layout();
+        // 尺寸/布局要再过一两帧才稳定（尤其是刚换了 Scene、窗口还没 settle），
+        // 这两下补算是「进游戏后画布尺寸不对」的正解：尺寸一变就重新算缩放。
+        Platform.runLater(() -> {
+            updateContentScale();
+            Platform.runLater(this::updateContentScale);
+        });
     }
 
-    /** 按窗口可用区域等比缩放逻辑画布（经 Group 缩放，父容器不受画布尺寸约束）。 */
+    /** 按窗口可用区域等比缩放逻辑画布（经 Scale 缩放，父容器不受画布尺寸约束）。 */
     private void updateContentScale() {
         if (scaleWrapper == null || logicalCanvas == null || contentWithOverlays == null) return;
         double availW = contentWithOverlays.getWidth();
         double availH = contentWithOverlays.getHeight();
+        // 还没布局完 / 宿主尺寸未知时用场景尺寸兜底：
+        // 否则 scale 会停在 1.0（画布按原始 1920×1080 画，窗口只看到左上角一块）。
+        if ((availW <= 0 || availH <= 0) && currentScene != null) {
+            availW = currentScene.getWidth();
+            availH = currentScene.getHeight();
+        }
         double lw = logicalCanvas.getPrefWidth();
         double lh = logicalCanvas.getPrefHeight();
         if (availW <= 0 || availH <= 0 || lw <= 0 || lh <= 0) return;
@@ -258,6 +290,23 @@ public class GameManager {
             Logger("DEBUG", "内容缩放: avail=" + (int) availW + "x" + (int) availH
                     + " 逻辑=" + (int) lw + "x" + (int) lh + " scale=" + String.format("%.3f", s));
         }
+    }
+
+
+    /**
+     * 让缩放跟随窗口尺寸 —— Scene 的大小才是「窗口可用区域」的最终口径。
+     *
+     * <p>宿主容器（contentWithOverlays）的尺寸通常在布局后才对得上窗口；只监听它的话，
+     * 换 Scene 那一刻（新 Scene 还是构造时的 1200×675）算出来的缩放会一直留着，
+     * 表现为「点了开始游戏之后画布尺寸不对、窗口一侧留空」。这里再挂一层 Scene 监听兜底。
+     */
+    private void bindSceneResize(Scene scene) {
+        if (scene == null || scene == sceneResizeBound) {
+            return;
+        }
+        sceneResizeBound = scene;
+        scene.widthProperty().addListener((o, ov, nv) -> updateContentScale());
+        scene.heightProperty().addListener((o, ov, nv) -> updateContentScale());
     }
 
 
@@ -576,6 +625,7 @@ public class GameManager {
             ChatManager.getInstance().syncLayout();
         });
 
+        bindSceneResize(newScene);
         Logger("DEBUG", "场景更新完成 - 内容挂入逻辑画布并按窗口缩放");
         setupGlobalKeyListeners(newScene);
     }
