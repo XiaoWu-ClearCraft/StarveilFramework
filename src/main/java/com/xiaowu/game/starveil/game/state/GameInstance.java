@@ -1173,14 +1173,25 @@ public class GameInstance {
     /**
      * 打开设置界面
      */
+    /**
+     * 从暂停菜单里打开设置界面。
+     *
+     * <p><b>不隐藏 HUD</b>：设置层加在 {@code overlayHost()}（逻辑画布最顶层）上，
+     * 本身就盖在视口之上，HUD 自然被盖住 —— 和暂停菜单同一条道理
+     * （见 {@link #pauseGame()} 与 {@link #viewport()} 的说明）。
+     *
+     * <p>以前这里会 {@code GameUI.hide()}，配对的「显示回来」却写在
+     * {@link #closeSetting()} 里、还带着 {@code !isPaused} 的前提：
+     * 而设置只能从暂停菜单进（那时 {@code isPaused} 必为 true），
+     * 于是关掉设置时 HUD 不会被显示回来，恢复游戏也不会 ——
+     * 玩家的血条、体力条就此消失，直到下一次切地图或死亡复活才偶然回来。
+     */
     private void openSetting() {
         if (isSettingOpen) return; // 避免重复打开
         isSettingOpen = true;
         buildSettingOverlay();
         // 广播「设置界面已打开」：想趁机暂停点什么、或记录一下的东西可以监听
         com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents.settingsOpened();
-        // 隐藏 GameUI
-        GameUI.getInstance().hide();
     }
 
     /**
@@ -1242,6 +1253,11 @@ public class GameInstance {
 
     /**
      * 打开存档/读档界面
+     *
+     * <p>与 {@link #openSetting()} 同理：<b>不隐藏 HUD</b> ——
+     * 这一层也是加在 {@code overlayHost()} 上的覆盖层，本身就盖住视口。
+     * 之前「打开时藏起来、关闭时再显示回来」的写法，从暂停菜单进来时
+     * （{@code isPaused == true}）关闭那一步会被条件挡掉，HUD 就再也不出现了。
      */
     private void openSaveLoadUI(boolean isSaveMode) {
         SaveLoadUI saveLoadUI = new SaveLoadUI(isSaveMode);
@@ -1255,11 +1271,6 @@ public class GameInstance {
             }
             // 关闭存档/读档界面
             overlayHost().getChildren().remove((javafx.scene.Node) saveLoadUI.getRoot());
-            // 重新显示 GameUI（仅在游戏未暂停、未死亡且未打开设置时）
-            if (!isPaused && !isDead && !isSettingOpen) {
-                GameUI.getInstance().attachToGame();
-                GameUI.getInstance().show();
-            }
         });
         // 注册ESC处理回调（使用新的事件回调系统，后注册的优先级更高）
         inputHandler.onKeyPressed(InputHandler.PAUSE_TOGGLE, saveLoadEscHandler);
@@ -1268,8 +1279,6 @@ public class GameInstance {
         // saveLoadUI.getRoot().prefHeightProperty().bind(gameContainer.heightProperty());
         // 添加到gameContainer
         overlayHost().getChildren().add((javafx.scene.Node) saveLoadUI.getRoot());
-        // 隐藏 GameUI
-        GameUI.getInstance().hide();
     }
 
     /**
@@ -1434,17 +1443,15 @@ public class GameInstance {
     }
 
     /**
-     * 关闭设置界面
+     * 关闭设置界面。
+     *
+     * <p>这里刻意<b>不碰 HUD</b>：打开设置时也没有把它藏起来（见 {@link #openSetting()}），
+     * 藏了再显示回来只会让血条闪一下；真正该由「有没有世界」决定 HUD 是否存在，
+     * 那件事已经在 {@code GameUI.show()} 里统一拦过了。
      */
     private void closeSetting() {
         detachSettingOverlay();
         isSettingOpen = false;
-
-        // 重新显示 GameUI（仅在游戏未暂停且未死亡时）
-        if (!isPaused && !isDead) {
-            GameUI.getInstance().attachToGame();
-            GameUI.getInstance().show();
-        }
     }
 
     /**

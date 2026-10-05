@@ -278,6 +278,7 @@ public class GameUI {
      * 与其逐个加判断、漏一个就冒出半截 HUD，不如在这里统一拦一道。
      */
     public void show() {
+        logVisibility("显示");
         Platform.runLater(() -> {
             if (!worldLoaded()) {
                 LoggerManager.Logger("DEBUG", "当前没有世界，不显示 HUD");
@@ -288,7 +289,7 @@ public class GameUI {
                 currentHideTransition = null;
             }
             if (CreditsManager.getInstance().isPlaying()) {
-                LoggerManager.Logger("DEBUG", "GameUI");
+                LoggerManager.Logger("DEBUG", "致谢正在播放，不显示 HUD");
                 return;
             }
             uiContainer.setVisible(true);
@@ -300,6 +301,22 @@ public class GameUI {
         });
     }
 
+    /**
+     * 记一条「谁动了 HUD」。
+     *
+     * <p>HUD 可见性是个全局状态，改它的地方散落在十来处（切地图、死亡、背包、
+     * 暂停、设置……），出问题的表现又是「用着用着 HUD 没了」——
+     * 只看代码很难对上是哪一条路径。所以每次显隐都带调用方记一条 DEBUG。
+     */
+    private static void logVisibility(String action) {
+        String caller = StackWalker.getInstance().walk(frames -> frames
+                .skip(1)
+                .findFirst()
+                .map(fr -> fr.getClassName() + "." + fr.getMethodName())
+                .orElse("?"));
+        LoggerManager.Logger("DEBUG", "HUD " + action + "（调用方 " + caller + "）");
+    }
+
     /** 是否已经有一个加载好的世界（没有就不该显示 HUD）。 */
     private static boolean worldLoaded() {
         com.xiaowu.game.starveil.game.state.GameInstance gi =
@@ -308,6 +325,7 @@ public class GameUI {
     }
 
     public void hide() {
+        logVisibility("隐藏");
         Platform.runLater(() -> {
             if (currentHideTransition != null) {
                 currentHideTransition.stop();
