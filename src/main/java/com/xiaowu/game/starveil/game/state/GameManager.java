@@ -241,9 +241,10 @@ public class GameManager {
 
         logicalCanvas = buildLogicalCanvas(contentRoot);
         // 缩放层用 Group：它不参与父容器的尺寸分配，父容器的 min 尺寸不会被逻辑画布顶大。
-        // 上一版我曾把它换成 StackPane，结果支点算错（Region 会缩到窗口大小，
-        // 而 Scale 的支点仍是逻辑中心）把画面整体推偏 —— 那是个自己造的 bug，已回退。
+        // 位置由 updateContentScale 自己算（setManaged(false) + layoutX/Y），
+        // 不依赖父容器对 Group 包围盒的解释 —— 上一版就是这里没居中。
         scaleWrapper = new javafx.scene.Group(logicalCanvas);
+        scaleWrapper.setManaged(false);
         // 画布始终放最底层，弹窗/菜单等覆盖层保持在它上方
         contentWithOverlays.getChildren().add(0, scaleWrapper);
 
@@ -288,6 +289,16 @@ public class GameManager {
                 ? Math.max(availW / lw, availH / lh)   // 等比填充：内容随窗口任意一维变大而放大
                 : Math.min(availW / lw, availH / lh);  // 等比包含：保留黑边
         scaleWrapper.getTransforms().setAll(new javafx.scene.transform.Scale(s, s, lw / 2, lh / 2));
+
+        // 居中【自己算】，不要指望父容器摆对：
+        // Scale 的支点是逻辑中心 (lw/2, lh/2)，只要把这一层放到
+        //   layoutX = (availW - lw) / 2, layoutY = (availH - lh) / 2
+        // 逻辑中心就正好落在可用区域的正中央，缩放后又以它为支点，于是画面必然居中。
+        // （父容器对 Group 的包围盒怎么算、算不算 transform，都不再影响结果。）
+        scaleWrapper.setManaged(false);
+        scaleWrapper.setLayoutX((availW - lw) / 2);
+        scaleWrapper.setLayoutY((availH - lh) / 2);
+
         if (Math.abs(s - lastScale) > 0.001) {
             lastScale = s;
             // 尺寸口径一起打出来：下次再出现「偏左/留白」，看一眼日志就知道是哪一层没铺满
@@ -299,7 +310,10 @@ public class GameManager {
                     + " 根=" + (rootContainer == null ? "?" :
                             (int) rootContainer.getWidth() + "x" + (int) rootContainer.getHeight())
                     + " 宿主=" + (int) contentWithOverlays.getWidth()
-                    + "x" + (int) contentWithOverlays.getHeight());
+                    + "x" + (int) contentWithOverlays.getHeight()
+                    + " 画布左上=" + String.format("%.1f,%.1f",
+                            scaleWrapper.getLayoutX() + lw * (1 - s) / 2,
+                            scaleWrapper.getLayoutY() + lh * (1 - s) / 2));
         }
     }
 
