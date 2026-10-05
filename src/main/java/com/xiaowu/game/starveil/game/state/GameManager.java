@@ -95,6 +95,9 @@ public class GameManager {
     public void initialize(Stage stage, Scene scene) {
         this.primaryStage = stage;
         this.currentScene = scene;
+        // 场景默认底色是白的 —— 任何一层没铺满都会露出白条（玩家看到的「留白」就是它）。
+        // 统一压成黑色：就算某层尺寸暂时没对上，也只是黑边，不会闪出一条刺眼的白。
+        scene.setFill(javafx.scene.paint.Color.BLACK);
 
         // 保存Stage配置（用于重新创建Stage）
         this.stageTitle = stage.getTitle();
@@ -287,8 +290,16 @@ public class GameManager {
         scaleWrapper.getTransforms().setAll(new javafx.scene.transform.Scale(s, s, lw / 2, lh / 2));
         if (Math.abs(s - lastScale) > 0.001) {
             lastScale = s;
+            // 尺寸口径一起打出来：下次再出现「偏左/留白」，看一眼日志就知道是哪一层没铺满
             Logger("DEBUG", "内容缩放: avail=" + (int) availW + "x" + (int) availH
-                    + " 逻辑=" + (int) lw + "x" + (int) lh + " scale=" + String.format("%.3f", s));
+                    + " 逻辑=" + (int) lw + "x" + (int) lh
+                    + " scale=" + String.format("%.3f", s)
+                    + " 场景=" + (currentScene == null ? "?" :
+                            (int) currentScene.getWidth() + "x" + (int) currentScene.getHeight())
+                    + " 根=" + (rootContainer == null ? "?" :
+                            (int) rootContainer.getWidth() + "x" + (int) rootContainer.getHeight())
+                    + " 宿主=" + (int) contentWithOverlays.getWidth()
+                    + "x" + (int) contentWithOverlays.getHeight());
         }
     }
 
@@ -583,6 +594,7 @@ public class GameManager {
      */
     public void updateScene(Scene newScene) {
         this.currentScene = newScene;
+        newScene.setFill(javafx.scene.paint.Color.BLACK);
 
         if (rootContainer == null || !(newScene.getRoot() instanceof Pane newRoot)) {
             Logger("ERROR", "无法接管新场景：rootContainer 为 null 或新根节点不是 Pane");
