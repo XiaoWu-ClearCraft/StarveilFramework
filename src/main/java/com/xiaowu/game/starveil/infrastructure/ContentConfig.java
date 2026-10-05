@@ -152,6 +152,73 @@ public final class ContentConfig {
         return windowTitle != null;
     }
 
+    // ==================== 联网相关 ====================
+
+    /** 断网时是否强制弹窗提示（默认关闭）。 */
+    private static volatile boolean offlinePromptEnabled = false;
+
+    /** 跳过断网提示的特殊键（KeyCode 名，默认 F8）。 */
+    private static volatile String offlineBypassKey = "F8";
+
+    /**
+     * 开启「断网时强制提示」。
+     *
+     * <p>默认<b>关闭</b>：框架不替内容决定「没网能不能玩」。开启后，一旦探测到断网就会
+     * 弹一个盖住整个画面的提示，联网后自动消失；不提供「知道了」按钮（见
+     * {@code OfflinePrompt} 的说明）。留了一个特殊键作为逃生口 ——
+     * 网络判断会有假阴性，不能把玩家永久关在门外。
+     */
+    public static void setOfflinePromptEnabled(boolean enabled) {
+        offlinePromptEnabled = enabled;
+        Logger("INFO", "断网提示: " + (enabled ? "开启" : "关闭"));
+    }
+
+    public static boolean offlinePromptEnabled() {
+        return offlinePromptEnabled;
+    }
+
+    /**
+     * 设置跳过断网提示的特殊键（{@code KeyCode} 的名字，如 {@code "F8"}）。
+     * 按一次即本次会话不再提示；恢复联网后再断开仍会提示。
+     */
+    public static void setOfflineBypassKey(String keyCodeName) {
+        if (keyCodeName == null || keyCodeName.trim().isEmpty()) {
+            offlineBypassKey = "F8";
+            return;
+        }
+        offlineBypassKey = keyCodeName.trim().toUpperCase();
+        Logger("INFO", "断网提示的跳过键: " + offlineBypassKey);
+    }
+
+    public static String offlineBypassKey() {
+        return offlineBypassKey;
+    }
+
+    /**
+     * 设置「是否联网」的探测端点，格式 {@code "主机:端口"}。
+     *
+     * <p>不设置则用框架默认（公网 DNS 的 443 端口，见 {@code NetworkStatus}）。
+     * 判断规则是「任意一个能连上就算在线」，所以多写几个更稳。
+     */
+    public static void setNetworkEndpoints(String... hostPorts) {
+        com.xiaowu.game.starveil.infrastructure.net.NetworkStatus.setEndpoints(hostPorts);
+    }
+
+    /** 设置「可信时间」的取时地址（HTTP Date 头）。不设置则用框架默认。 */
+    public static void setTrustedTimeUrls(String... urls) {
+        com.xiaowu.game.starveil.infrastructure.net.TrustedTime.setUrls(urls);
+    }
+
+    /**
+     * 设置「IP 属地」查询接口。
+     *
+     * <p>不设置则用框架默认的几个（国内可达的优先）。响应按 UTF-8 解析；
+     * 需要别的编码请直接改 {@code IpLocation} 的默认表。
+     */
+    public static void setIpLocationUrls(String... urls) {
+        com.xiaowu.game.starveil.infrastructure.net.IpLocation.setUrls(urls);
+    }
+
     // ==================== 字体 ====================
 
     /** 正文字体（界面里绝大多数文字）。 */
@@ -377,6 +444,8 @@ public final class ContentConfig {
         menuMusic = null;
         gameName = null;
         windowTitle = null;
+        offlinePromptEnabled = false;
+        offlineBypassKey = "F8";
         primaryColor = DEFAULT_PRIMARY_COLOR;
         secondaryColor = DEFAULT_SECONDARY_COLOR;
         tertiaryColor = DEFAULT_TERTIARY_COLOR;

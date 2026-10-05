@@ -167,6 +167,21 @@ public final class FrameworkDataKeys {
     public static final DataKey<Boolean> INERTIA =
             DataManager.defineBool("starveil", "inertia", true, PER_SAVE);
 
+    // ==================== 可信时间（全局） ====================
+
+    /**
+     * 时间校正量：可信时间 − 本机时间（毫秒）。
+     *
+     * <p>由 {@code TrustedTime} 在联网同步成功后写入，这样下次启动即使还没联网，
+     * 也能先沿用上一次的校正量，而不是直接相信玩家可以随手改的本机时钟。
+     */
+    public static final DataKey<Long> TRUSTED_TIME_OFFSET =
+            DataManager.defineLong("starveil", "trusted_time_offset", 0L);
+
+    /** 上次同步时间时的<b>本机</b>时间戳（毫秒）；用于说明这个校正量有多旧。 */
+    public static final DataKey<Long> TRUSTED_TIME_SYNCED_AT =
+            DataManager.defineLong("starveil", "trusted_time_synced_at", 0L);
+
     /** 聊天记录是否跨章节保留，默认<b>不保留</b>（章节切换即清空）。 */
     public static final DataKey<Boolean> CHAT_HISTORY_KEEP_CHAPTERS =
             DataManager.defineBool("starveil", "chat_history_keep_chapters", false, PER_SAVE);

@@ -144,6 +144,9 @@ public class GameManager {
 
             Logger("DEBUG", "游戏管理器初始化完成 - 逻辑画布 + 窗口缩放");
             bindSceneResize(scene);
+            // 断网提示挂在场景根上：主菜单阶段还没有画布，而「没网」在主菜单就该说
+            com.xiaowu.game.starveil.ui.overlay.OfflinePrompt.getInstance()
+                    .attach(rootContainer, scene);
         }
         stage.setFullScreenExitKeyCombination(KeyCombination.NO_MATCH);
         initializeCloseHandler();
@@ -652,6 +655,8 @@ public class GameManager {
         });
 
         bindSceneResize(newScene);
+        com.xiaowu.game.starveil.ui.overlay.OfflinePrompt.getInstance()
+                .attach(rootContainer, newScene);
         Logger("DEBUG", "场景更新完成 - 内容挂入逻辑画布并按窗口缩放");
         setupGlobalKeyListeners(newScene);
     }

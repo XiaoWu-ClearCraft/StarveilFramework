@@ -103,6 +103,10 @@ public class AppEntry {
             //   而玩家什么都没做错。
             com.xiaowu.game.starveil.infrastructure.persistence.DataManager.initialize();
 
+            // 可信时间：先把上次联网同步得到的校正量读回来。这样即使这次还没联网、
+            // 甚至整局都不联网，游戏拿到的也不是玩家可以随手改的本机时钟。
+            com.xiaowu.game.starveil.infrastructure.net.TrustedTime.loadFromConfig();
+
             // 界面语言：同样必须在内容初始化之后 —— 内容是通过
             // ContentConfig.addLanguage() 才登记可选语言的，早于那一步就
             // 无从校验存下来的偏好是否仍然可用。
