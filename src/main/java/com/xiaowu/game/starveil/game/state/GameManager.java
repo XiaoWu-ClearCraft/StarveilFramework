@@ -770,27 +770,63 @@ public class GameManager {
     public void setAspectRatio(double ratio) {
         this.aspectRatio = ratio;
 
-        // 获取当前窗口的高度
-        double currentHeight = primaryStage.getHeight();
-
-        // 根据新的比例计算新的宽度（保持高度不变）
-        double newWidth = currentHeight * ratio;
-
-        // 更新最小窗口大小以适应新比例
-        double minHeight = 600; // 最小高度
-        double minWidth = minHeight * ratio;
-        primaryStage.setMinWidth(minWidth);
-        primaryStage.setMinHeight(minHeight);
-
-        // 如果新宽度超出当前窗口大小，调整窗口大小
-        if (newWidth > primaryStage.getWidth()) {
-            primaryStage.setWidth(newWidth);
-        }
+        // 让【客户区】符合比例，而不是让窗口外框去凑：
+        // 原来的 newWidth = 窗口外框高度 × 比例，把标题栏/边框也算进去了，
+        // 于是客户区总是比目标比例略扁一点 —— 画布按 min 缩放后必然留一条细黑边，
+        // 看起来就像「设置的比例没生效」。改成用客户区高度反推窗口宽度。
+        applyWindowShapeForRatio(ratio, 5);
 
         // 重新创建比例容器以应用新比例
         refreshAspectRatio();
 
         Logger("INFO", "比例已设置为: " + ratio + ", 窗口大小: " + primaryStage.getWidth() + "x" + primaryStage.getHeight());
+    }
+
+    /**
+     * 把窗口宽度调成「客户区正好是目标比例」的大小。
+     *
+     * <p>窗口还没显示、尺寸还是 {@code NaN} 时（启动阶段就是这样，而
+     * {@code Menu}/{@code RPGManager} 恰好在 {@code setScene} 之前调用本方法），
+     * 就等下一帧再算 —— 否则会算出 {@code NaN} 宽度直接跳过，玩家看到的就是
+     * 「打开时比例不对，重新应用一次设置才对」。
+     *
+     * @param retries 允许的延迟重试次数（避免窗口一直没就绪时无限重排）
+     */
+    private void applyWindowShapeForRatio(double ratio, int retries) {
+        if (primaryStage == null) {
+            return;
+        }
+        Scene sc = primaryStage.getScene();
+        double clientW = sc != null ? sc.getWidth() : 0;
+        double clientH = sc != null ? sc.getHeight() : 0;
+        double outerW = primaryStage.getWidth();
+        double outerH = primaryStage.getHeight();
+
+        boolean unknown = clientW <= 0 || clientH <= 0
+                || Double.isNaN(outerW) || Double.isNaN(outerH)
+                || Double.isNaN(clientW) || Double.isNaN(clientH)
+                || outerW <= 0 || outerH <= 0;
+        if (unknown) {
+            if (retries > 0) {
+                Platform.runLater(() -> applyWindowShapeForRatio(ratio, retries - 1));
+            }
+            return;
+        }
+
+        double decoW = Math.max(0, outerW - clientW);   // 左右边框
+        double decoH = Math.max(0, outerH - clientH);   // 标题栏 + 上下边框
+        double targetOuterW = clientH * ratio + decoW;
+
+        // 最小尺寸也按「客户区」给（1200×675 客户区），保证最小窗口也符合比例
+        primaryStage.setMinWidth(1200 + decoW);
+        primaryStage.setMinHeight(675 + decoH);
+
+        if (Math.abs(targetOuterW - outerW) > 1) {
+            primaryStage.setWidth(targetOuterW);
+            Logger("DEBUG", "按客户区对齐比例: 客户区=" + (int) clientW + "x" + (int) clientH
+                    + " 边框=" + (int) decoW + "x" + (int) decoH
+                    + " 窗口宽度 " + (int) outerW + " → " + (int) targetOuterW);
+        }
     }
 
     /**
