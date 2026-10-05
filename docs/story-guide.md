@@ -60,6 +60,18 @@ com.xiaowu.game.starveil.content.init.init
 框架对没有声明的项一律**静默降级**（纯黑 / 系统字体 / 不播音频 / 系统图标），
 不会报错，也不会替你猜。
 
+**游戏名也在这里声明**：框架是通用的，在内容声明之前它只知道自己在跑一个「游戏」，
+默认名是 `My Game`。
+
+```java
+ContentConfig.setGameName("My Game");     // 默认值就是它
+// ContentConfig.setWindowTitle("My Game"); // 想整串自定义窗口标题再放开
+```
+
+声明之后这个名字会出现在：窗口标题、`{TITLE}` / `{window.title}` 占位符、
+`s.dialog(...)` 的说话人（旁白）、主菜单与暂停菜单的标题、教程欢迎语。
+不声明则整局都显示 `My Game` —— 这也是「框架自带内容为空」的一部分。
+
 ---
 
 ### 章节与世界的加载时机

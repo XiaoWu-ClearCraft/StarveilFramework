@@ -100,7 +100,7 @@ public class Menu extends Application {
             gameManager.applyWindowSettings();
 
             current.setScene(scene);
-            current.setTitle(GameConstants.MAIN_MENU_TITLE);
+            current.setTitle(GameConstants.mainMenuTitle());
             if (current.getIcons().isEmpty()) {
                 // 窗口图标由内容提供（content.init.init → ContentConfig.setAppIcon）。
                 // 未提供时保持系统默认图标 —— 原实现用 Objects.requireNonNull 包着，
@@ -185,7 +185,7 @@ public class Menu extends Application {
         Platform.runLater(() -> {
             // 菜单内容已在 start() 里加好了，这里只负责广播
             com.xiaowu.game.starveil.infrastructure.event.LifecycleEvents
-                    .menuShown(GameConstants.MAIN_MENU_TITLE);
+                    .menuShown(GameConstants.mainMenuTitle());
         });
     }
 
@@ -303,7 +303,7 @@ public class Menu extends Application {
         leftPanel.setBackground(new Background(panelFill));
         Font customFont = safeFont(com.xiaowu.game.starveil.infrastructure.ContentConfig.decorFont(), 20);
 
-        Label gameTitle = new Label("雾隐星阑");
+        Label gameTitle = new Label(com.xiaowu.game.starveil.infrastructure.ContentConfig.gameName());
         gameTitle.setTextFill(Color.WHITE);
         gameTitle.setFont(safeFont(com.xiaowu.game.starveil.infrastructure.ContentConfig.bodyFont(), 24));
         Button startButton;
@@ -560,7 +560,7 @@ public class Menu extends Application {
 
         Font customFont = safeFont(com.xiaowu.game.starveil.infrastructure.ContentConfig.decorFont(), 20);
 
-        Label gameTitle = new Label("雾隐星阑");
+        Label gameTitle = new Label(com.xiaowu.game.starveil.infrastructure.ContentConfig.gameName());
         gameTitle.setTextFill(Color.WHITE);
         gameTitle.setFont(safeFont(com.xiaowu.game.starveil.infrastructure.ContentConfig.bodyFont(), 24));
 

@@ -29,7 +29,7 @@ public class CmdTest extends BaseStartupArgumentHandler {
     public boolean handle(String value, String[] allArgs) {
         try {
             ConsoleProvider console = ConsoleProviderFactory.getInstance();
-            console.setTitle("雾隐星阑");
+            console.setTitle(com.xiaowu.game.starveil.infrastructure.ContentConfig.gameName());
             console.println("测试成功");
             console.printBackground("背景 - 绿色  ", ConsoleColor.GREEN);
             console.println("");

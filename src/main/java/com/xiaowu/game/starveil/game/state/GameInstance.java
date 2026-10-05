@@ -1039,7 +1039,7 @@ public class GameInstance {
         javafx.scene.text.Font customFont = Fonts.safeFont("starveil:fonts/handwriting.ttf", 20);
 
         // 添加标题
-        javafx.scene.control.Label gameTitle = new javafx.scene.control.Label("雾隐星阑");
+        javafx.scene.control.Label gameTitle = new javafx.scene.control.Label(com.xiaowu.game.starveil.infrastructure.ContentConfig.gameName());
         gameTitle.setTextFill(javafx.scene.paint.Color.WHITE);
         gameTitle.setFont(Fonts.safeFont("starveil:fonts/xiaolai-sc-regular.ttf", 24));
 

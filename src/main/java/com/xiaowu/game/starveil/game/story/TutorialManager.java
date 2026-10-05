@@ -180,7 +180,7 @@ public class TutorialManager {
         // 视觉小说模式会把 GameUI 整体隐藏，不接管画面就没有东西可以高亮
         ChatManager.getInstance().handOverToHudForTutorial();
 
-        showInfo("欢迎来到雾隐星阑",
+        showInfo("欢迎来到" + com.xiaowu.game.starveil.infrastructure.ContentConfig.gameName(),
                 "你刚进入游戏，先来熟悉一下界面和操作吧",
                 null, Step.WELCOME);
     }

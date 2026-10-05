@@ -30,8 +30,8 @@ public final class StoryText {
         String playerName = com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
                 .PLAYER_NAME.get();
         result = result.replace("{NAME}", playerName == null ? "" : playerName);
-        result = result.replace("{TITLE}", GameConstants.GAME_TITLE);
-        result = result.replace("{window.title}", GameConstants.GAME_TITLE);
+        result = result.replace("{TITLE}", GameConstants.gameTitle());
+        result = result.replace("{window.title}", GameConstants.gameTitle());
         return result;
     }
 }

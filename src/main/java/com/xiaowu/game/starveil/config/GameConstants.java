@@ -159,10 +159,47 @@ public class  GameConstants {
     public static final double MAX_VOLUME = 1.0;
     
     // 游戏名称和标题
-    public static final String GAME_TITLE = "雾隐星阑";
-    public static final String GAME_TITLE_IN_PARENS = GAME_TITLE + " - ";
-    public static final String MAIN_MENU_TITLE = GAME_TITLE_IN_PARENS + "主菜单";
-    public static final String GAME_TEST_TITLE = GAME_TITLE_IN_PARENS + "开放探索系统测试";
+    //
+    // 框架是通用的：它不预设自己正在跑哪个游戏，所以这里【不再是写死的字符串】，
+    // 而是去问内容（ContentConfig.gameName / windowTitle）。
+    // 内容在 init 里声明：ContentConfig.setGameName("My Game")（默认值也是 "My Game"），
+    // 想完全自定义窗口标题就再调 ContentConfig.setWindowTitle("……")。
+
+    /** 游戏名（内容没声明时是 {@code My Game}）。 */
+    public static String gameTitle() {
+        return com.xiaowu.game.starveil.infrastructure.ContentConfig.gameName();
+    }
+
+    /** 窗口标题基数：内容显式设过窗口标题就用它，否则用游戏名。 */
+    public static String windowTitleBase() {
+        return com.xiaowu.game.starveil.infrastructure.ContentConfig.windowTitle();
+    }
+
+    /**
+     * 某个界面的窗口标题。
+     *
+     * <p>内容显式设过 {@code ContentConfig.setWindowTitle(…)} 时<b>原样使用</b>它
+     * （玩家自定义的标题不该被框架加上后缀），否则拼成「游戏名 - 界面名」。
+     */
+    public static String windowTitleFor(String screenName) {
+        if (com.xiaowu.game.starveil.infrastructure.ContentConfig.hasWindowTitle()) {
+            return windowTitleBase();
+        }
+        if (screenName == null || screenName.isEmpty()) {
+            return windowTitleBase();
+        }
+        return windowTitleBase() + " - " + screenName;
+    }
+
+    /** 主菜单窗口标题。 */
+    public static String mainMenuTitle() {
+        return windowTitleFor("主菜单");
+    }
+
+    /** 游戏（章节）窗口标题。 */
+    public static String gameWindowTitle() {
+        return windowTitleFor(null);
+    }
     
     // 错误和消息对话框常量
     public static final String ERROR_ADMIN_PRIVILEGE = "提升权限错误";

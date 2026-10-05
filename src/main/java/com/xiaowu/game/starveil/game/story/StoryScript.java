@@ -231,7 +231,7 @@ public final class StoryScript {
 
     /** 系统级提示框（Windows 上是原生 MessageBox），等待玩家点击确定。 */
     public StoryScript dialog(String message) {
-        return dialog(GameConstants.GAME_TITLE, message);
+        return dialog(GameConstants.gameTitle(), message);
     }
 
     /**

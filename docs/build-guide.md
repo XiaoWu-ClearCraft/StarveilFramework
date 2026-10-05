@@ -163,6 +163,15 @@ public final class init {
     private init() {}
 
     public static void init() {
+        // 游戏名 —— 框架不预设自己跑的是哪个游戏，默认是 "My Game"。
+        // 这个名字会出现在：窗口标题、{TITLE} / {window.title} 占位符、
+        // s.dialog(...) 的说话人（旁白）、主菜单/暂停菜单的标题、教程欢迎语。
+        ContentConfig.setGameName("My Game");
+
+        // 窗口标题 —— 不设则自动拼：主菜单「游戏名 - 主菜单」、游戏内就是游戏名；
+        // 设了就整串照用（框架不再加后缀）。
+        // ContentConfig.setWindowTitle("My Game");
+
         // 字体 —— 框架不带任何字体，不设就用系统字体
         ContentConfig.setBodyFont("starveil:fonts/my-body.ttf");
         ContentConfig.setTitleFont("starveil:fonts/my-title.ttf");

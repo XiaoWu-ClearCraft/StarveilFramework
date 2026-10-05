@@ -39,8 +39,17 @@ public final class ContentConfig {
     public static final String DEFAULT_BODY_FONT = "starveil:fonts/xiaolai-sc-regular.ttf";
     public static final String DEFAULT_TITLE_FONT = "starveil:fonts/zhengjing.ttf";
     public static final String DEFAULT_DECOR_FONT = "starveil:fonts/handwriting.ttf";
-    public static final String DEFAULT_APP_ICON = "starveil:textures/icons/app-icon.png";    public static final String DEFAULT_MENU_BACKGROUND = "starveil:textures/backgrounds/main-menu.png";
+    public static final String DEFAULT_APP_ICON = "starveil:textures/icons/app-icon.png";
+    public static final String DEFAULT_MENU_BACKGROUND = "starveil:textures/backgrounds/main-menu.png";
     public static final String DEFAULT_MENU_MUSIC = "starveil:sounds/music/dream.mp3";
+
+    /**
+     * 游戏名默认值。
+     *
+     * <p>框架是通用的：在内容声明自己叫什么之前，它只知道自己在跑一个「游戏」。
+     * 内容应当在自己的 {@code init} 里 {@code ContentConfig.setGameName("……")}。
+     */
+    public static final String DEFAULT_GAME_NAME = "My Game";
 
     // 主题色默认值：直接引用 GameConstants，保持单一事实源。
     // GameConstants 只依赖 java.io/nio，因此 infrastructure → config 不构成包循环。
@@ -75,8 +84,73 @@ public final class ContentConfig {
     private static volatile String secondaryColor = DEFAULT_SECONDARY_COLOR;
     private static volatile String tertiaryColor = DEFAULT_TERTIARY_COLOR;
 
+    /**
+     * 游戏名。
+     *
+     * <p>框架<b>不</b>知道自己被用来做哪个游戏，所以默认是通用的 {@value #DEFAULT_GAME_NAME}；
+     * 内容在 {@code init} 里用 {@link #setGameName(String)} 覆盖它。
+     * 它出现在：窗口标题、{@code {TITLE}} / {@code {window.title}} 占位符、
+     * 以及 {@code s.dialog(...)} 的说话人（旁白）位置。
+     */
+    private static volatile String gameName = null;
+
+    /**
+     * 窗口标题（整串）。
+     *
+     * <p>为 {@code null}（默认）时由框架按界面拼：主菜单是「游戏名 - 主菜单」，
+     * 游戏内就是游戏名。内容想完全自定义标题栏就显式设它。
+     */
+    private static volatile String windowTitle = null;
+
     /** 默认路径 → 内容指定的路径。 */
     private static final Map<String, String> REDIRECTS = new ConcurrentHashMap<>();
+
+    // ==================== 游戏名 / 窗口标题 ====================
+
+    /** 设置游戏名（默认 {@value #DEFAULT_GAME_NAME}）。 */
+    public static void setGameName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            Logger("WARNING", "游戏名为空，保持默认: " + DEFAULT_GAME_NAME);
+            gameName = null;
+            return;
+        }
+        gameName = name.trim();
+        Logger("INFO", "游戏名已设为: " + gameName);
+    }
+
+    /** 游戏名（内容没设过就是默认值）。 */
+    public static String gameName() {
+        return gameName != null ? gameName : DEFAULT_GAME_NAME;
+    }
+
+    /**
+     * 设置窗口标题（整串）。不设则按界面自动拼，见 {@link #windowTitle()}。
+     */
+    public static void setWindowTitle(String title) {
+        if (title == null || title.trim().isEmpty()) {
+            windowTitle = null;
+            Logger("INFO", "窗口标题未指定，将按「游戏名 - 界面」自动拼接");
+            return;
+        }
+        windowTitle = title.trim();
+        Logger("INFO", "窗口标题已设为: " + windowTitle);
+    }
+
+    /**
+     * 窗口标题基数：内容设过就用它，否则用游戏名。
+     *
+     * <p>「基数」的意思是框架还会往后接界面名（如「 - 主菜单」）。
+     * 想连界面名一起自定义，请用 {@link #setWindowTitle(String)} 之外的
+     * {@code GameConstants.windowTitleFor(subtitle)}（内容一般用不到）。
+     */
+    public static String windowTitle() {
+        return windowTitle != null ? windowTitle : gameName();
+    }
+
+    /** 内容是否显式指定了窗口标题。 */
+    public static boolean hasWindowTitle() {
+        return windowTitle != null;
+    }
 
     // ==================== 字体 ====================
 
@@ -301,6 +375,8 @@ public final class ContentConfig {
         appIcon = null;
         menuBackground = null;
         menuMusic = null;
+        gameName = null;
+        windowTitle = null;
         primaryColor = DEFAULT_PRIMARY_COLOR;
         secondaryColor = DEFAULT_SECONDARY_COLOR;
         tertiaryColor = DEFAULT_TERTIARY_COLOR;

@@ -23,9 +23,9 @@ class StoryTextTest {
 
     @Test
     void replacesWindowTitlePlaceholders() {
-        assertEquals(GameConstants.GAME_TITLE, StoryText.format("{window.title}"));
-        assertEquals(GameConstants.GAME_TITLE, StoryText.format("{TITLE}"));
-        assertEquals("标题: " + GameConstants.GAME_TITLE, StoryText.format("标题: {window.title}"));
+        assertEquals(GameConstants.gameTitle(), StoryText.format("{window.title}"));
+        assertEquals(GameConstants.gameTitle(), StoryText.format("{TITLE}"));
+        assertEquals("标题: " + GameConstants.gameTitle(), StoryText.format("标题: {window.title}"));
     }
 
     @Test

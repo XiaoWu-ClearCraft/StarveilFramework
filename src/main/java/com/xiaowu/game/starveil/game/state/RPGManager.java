@@ -44,7 +44,7 @@ public class RPGManager extends Application {
         // 不重复初始化 GameManager，仅将新场景挂载到已有的 rootContainer（含通知/弹窗/效果层）
         gameManager.updateScene(scene);
         stage.setScene(scene);
-        stage.setTitle(GameConstants.GAME_TEST_TITLE);
+        stage.setTitle(GameConstants.gameWindowTitle());
         // 窗口图标由内容提供；未提供时保持系统默认图标。
         // 原实现用 Objects.requireNonNull 包着，缺图直接 NPE。
         String iconPath = com.xiaowu.game.starveil.infrastructure.ContentConfig.appIcon();
@@ -95,7 +95,7 @@ public class RPGManager extends Application {
             // 不重复初始化 GameManager，仅将新场景挂载到已有的 rootContainer（含通知/弹窗/效果层）
             GameManager.getInstance().updateScene(scene);
             stage.setScene(scene);
-            stage.setTitle(GameConstants.GAME_TEST_TITLE);
+            stage.setTitle(GameConstants.gameWindowTitle());
             stage.show();
 
             // 创建游戏实例

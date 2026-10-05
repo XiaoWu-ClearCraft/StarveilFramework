@@ -97,7 +97,7 @@ public class FallbackConsoleProvider implements ConsoleProvider {
     }
 
     private void createWindow() {
-        frame = new JFrame("雾隐星阑 - 终端");
+        frame = new JFrame(com.xiaowu.game.starveil.infrastructure.ContentConfig.gameName() + " - 终端");
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         frame.setSize(720, 450);
         frame.setLocationRelativeTo(null);
