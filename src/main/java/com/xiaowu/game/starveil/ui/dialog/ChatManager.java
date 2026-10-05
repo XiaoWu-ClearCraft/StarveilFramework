@@ -84,6 +84,15 @@ public class ChatManager {
      */
     private boolean storyAdvanceLocked = false;
 
+    /**
+     * 全屏模态（如断网提示）借用的推进锁，<b>按来源记账</b>。
+     *
+     * <p>为什么不是一个 boolean：和 {@link InputHandler#lockControls(Object)} 同样的道理 ——
+     * 断网提示恢复联网时会解一次锁，若是共用标志，就会把教程或暂停菜单加的锁一起解掉。
+     * 各来源各记一笔，互不干扰；同一来源重复加锁也只算一次。
+     */
+    private final Set<Object> advanceLocks = new LinkedHashSet<>();
+
     /** 剧情层是否被教程临时收起过。用于精确还原，避免误开或误关对话框。 */
     private boolean storyLayerHandedOver = false;
 
@@ -588,10 +597,37 @@ public class ChatManager {
 
     /**
      * 对话层当前是否应当忽略推进类输入。
-     * 游戏暂停与教程锁定都会冻结推进，但两者互相独立、互不解除。
+     * 游戏暂停、教程锁定、以及外部模态（断网提示）都会冻结推进，但互相独立、互不解除。
      */
     private boolean advanceLocked() {
-        return pausedByGame || storyAdvanceLocked;
+        return pausedByGame || storyAdvanceLocked || !advanceLocks.isEmpty();
+    }
+
+    /**
+     * 按来源锁住 / 解锁剧情推进。
+     *
+     * <p>给「盖住整个画面、期间不许翻页」的外部模态用（现在只有断网提示）。
+     * 锁住时点击与空格/回车都不翻页，其它快捷键也不再由对话框处理；
+     * 多个来源各自加锁互不影响，见 {@link #advanceLocks}。
+     *
+     * @param owner 来源标识（任意对象，调用方自己持有同一个实例来解锁）
+     */
+    public void lockAdvance(Object owner) {
+        if (owner != null && advanceLocks.add(owner)) {
+            Logger("DEBUG", "剧情推进已锁住（来源 " + owner + "）");
+        }
+    }
+
+    /** 按来源解锁剧情推进。 */
+    public void unlockAdvance(Object owner) {
+        if (owner != null && advanceLocks.remove(owner)) {
+            Logger("DEBUG", "剧情推进已解锁（来源 " + owner + "）");
+        }
+    }
+
+    /** 当前是否处于「推进被锁住」状态（含暂停、教程锁、外部模态锁）。 */
+    public boolean isAdvanceLocked() {
+        return advanceLocked();
     }
 
     /**

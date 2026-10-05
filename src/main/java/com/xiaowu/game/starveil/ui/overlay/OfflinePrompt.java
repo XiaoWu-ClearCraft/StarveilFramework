@@ -2,7 +2,10 @@ package com.xiaowu.game.starveil.ui.overlay;
 
 import com.xiaowu.game.starveil.infrastructure.ContentConfig;
 import com.xiaowu.game.starveil.infrastructure.net.NetworkStatus;
+import com.xiaowu.game.starveil.game.state.GameInstance;
+import com.xiaowu.game.starveil.input.InputHandler;
 import com.xiaowu.game.starveil.render.TextureNodeFactory;
+import com.xiaowu.game.starveil.ui.dialog.ChatManager;
 
 import javafx.animation.FadeTransition;
 import javafx.application.Platform;
@@ -21,6 +24,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
+import javafx.stage.Window;
 import javafx.util.Duration;
 
 import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
@@ -44,15 +48,46 @@ import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logg
  * <h2>挂在哪</h2>
  * 挂到<b>场景根</b>（{@code GameManager} 的 rootContainer）而不是画布里的
  * modalHost：主菜单阶段还没有画布，而「没网」这件事在主菜单就该说。
+ *
+ * <h2>怎么做到「真的挡住」</h2>
+ * 只靠遮罩节点自己吃事件是不够的，两个坑都踩过：
+ *
+ * <ol>
+ *   <li><b>按键绕过遮罩。</b>按键事件送给的是「焦点节点」，遮罩没拿到焦点就永远收不到 ——
+ *       于是回车/空格照旧翻页。而且框架里的 {@code InputHandler} 是在<b>场景</b>上注册的
+ *       事件过滤器，场景过滤器按注册先后执行，遮罩后注册就抢不到它前面。</li>
+ *   <li><b>场景切换把遮罩节点清掉。</b>{@code GameManager} 接管新场景时会
+ *       {@code rootContainer.getChildren().clear()}，遮罩节点被摘掉但本类还记着
+ *       {@code overlay != null}，于是「以为在挡、其实什么都没挡」。</li>
+ * </ol>
+ *
+ * 所以拦截放在<b>窗口</b>级过滤器上（实测窗口过滤器先于场景过滤器执行，见下面的
+ * {@link #bindWindow}），并且每次显示都确认节点还挂在宿主上。
+ *
+ * <p>另外还会顺手做两件事，属于「就算有事件漏过去也不会动」的兜底：
+ * 按来源锁住 {@code InputHandler} 的操作（并清掉断开瞬间正按着的键），
+ * 以及锁住视觉小说的剧情推进（{@link ChatManager#lockAdvance(Object)}）。
  */
 public final class OfflinePrompt {
 
     private static final OfflinePrompt INSTANCE = new OfflinePrompt();
 
+    /** 借用 InputHandler / ChatManager 的锁时用的来源标识（toString 只为了日志好读）。 */
+    private static final Object LOCK_OWNER = new Object() {
+        @Override
+        public String toString() {
+            return "断网提示";
+        }
+    };
+
     private StackPane root;
     private StackPane overlay;
     private Scene boundScene;
+    private Window boundWindow;
     private Label hintLabel;
+
+    /** 联网状态监听是否已经注册过（attach 会被调用多次）。 */
+    private boolean listening;
 
     /** 本次会话是否已经用特殊键跳过。 */
     private boolean bypassed;
@@ -78,8 +113,18 @@ public final class OfflinePrompt {
         if (!ContentConfig.offlinePromptEnabled()) {
             return;
         }
-        NetworkStatus.addListener(this::onNetworkStateChanged);
+        if (!listening) {
+            listening = true;
+            NetworkStatus.addListener(this::onNetworkStateChanged);
+        }
         NetworkStatus.start();
+        // 场景切换时宿主被 clear() 过：节点没了但状态还记着「在显示」，
+        // 于是既看不见、也挡不住 —— 这里补挂回去
+        if (overlay != null && !host.getChildren().contains(overlay)) {
+            host.getChildren().add(overlay);
+            overlay.setOpacity(1);
+            Logger("INFO", "断网提示已重新挂到新场景（切场景时被摘掉了）");
+        }
     }
 
     /** 切换场景时重新绑定（宿主仍是 rootContainer，跨场景复用）。 */
@@ -88,12 +133,38 @@ public final class OfflinePrompt {
             return;
         }
         boundScene = scene;
-        scene.addEventFilter(KeyEvent.KEY_PRESSED, this::onKeyPressed);
+        // 窗口一般要等场景上屏才有，取不到就在每次显示时再试；遮罩节点自己也拦一道
+        bindWindow(scene);
+    }
+
+    /**
+     * 把「挡输入」的过滤器挂到<b>窗口</b>上。
+     *
+     * <p>为什么不是场景：按键事件的过滤器按注册顺序执行，框架的 {@code InputHandler}
+     * 在场景建好时就注册了，遮罩永远排在它后面 —— 也就永远拦不住回车/空格。
+     * 窗口在事件链上更靠外（实测窗口过滤器先于场景过滤器执行），所以在窗口上拦是可靠的。
+     * 另外窗口跨场景不变，切场景不用重新挂。
+     */
+    private void bindWindow(Scene scene) {
+        Window window = scene == null ? null : scene.getWindow();
+        if (window == null || window == boundWindow) {
+            return;
+        }
+        boundWindow = window;
+        window.addEventFilter(KeyEvent.ANY, this::onGlobalKey);
+        window.addEventFilter(javafx.scene.input.MouseEvent.ANY, this::onGlobalMouse);
+        window.addEventFilter(javafx.scene.input.ScrollEvent.ANY, this::onGlobalScroll);
+        Logger("DEBUG", "断网提示已接管窗口级输入拦截");
     }
 
     /** 功能是否开启。 */
     private boolean enabled() {
         return ContentConfig.offlinePromptEnabled();
+    }
+
+    /** 提示是否正显示在画面上。 */
+    private boolean showing() {
+        return overlay != null && enabled();
     }
 
     // ==================== 状态变化 ====================
@@ -112,18 +183,48 @@ public final class OfflinePrompt {
         });
     }
 
-    // ==================== 特殊键 ====================
+    // ==================== 特殊键 / 输入拦截 ====================
 
-    private void onKeyPressed(KeyEvent event) {
-        if (!enabled() || overlay == null || bypassed) {
+    /**
+     * 窗口级按键拦截：显示期间吃掉一切按键，只放行「跳过键」。
+     *
+     * <p>窗口过滤器在场景过滤器之前执行，所以这里 consume 之后，
+     * 框架的 {@code InputHandler}、菜单、对话框都收不到按键。
+     */
+    private void onGlobalKey(KeyEvent event) {
+        if (!showing()) {
             return;
         }
-        if (event.getCode() == bypassKey()) {
-            bypassed = true;
-            Logger("INFO", "已用特殊键跳过断网提示（本次会话不再提示）");
-            hideOverlay();
+        if (event.getEventType() == KeyEvent.KEY_PRESSED && event.getCode() == bypassKey()) {
+            bypass();
+            event.consume();
+            return;
+        }
+        event.consume();
+    }
+
+    /** 窗口级鼠标拦截：遮罩期间点哪里都不算。 */
+    private void onGlobalMouse(javafx.scene.input.MouseEvent event) {
+        if (showing()) {
             event.consume();
         }
+    }
+
+    /** 窗口级滚轮拦截：否则还能滚出历史记录面板。 */
+    private void onGlobalScroll(javafx.scene.input.ScrollEvent event) {
+        if (showing()) {
+            event.consume();
+        }
+    }
+
+    /** 用跳过键解封：本次会话不再提示（联网后再断开仍会提示）。 */
+    private void bypass() {
+        if (bypassed) {
+            return;
+        }
+        bypassed = true;
+        Logger("INFO", "已用特殊键跳过断网提示（本次会话不再提示）");
+        hideOverlay();
     }
 
     /** 配置里的特殊键；解析不出来就退回 F8。 */
@@ -142,11 +243,21 @@ public final class OfflinePrompt {
     // ==================== 显示 / 隐藏 ====================
 
     private void showOverlay() {
-        if (root == null || overlay != null) {
+        if (root == null) {
             return;
         }
+        if (overlay != null) {
+            // 已经在显示：确认节点还在宿主上（切场景会把子节点清空）
+            if (!root.getChildren().contains(overlay)) {
+                root.getChildren().add(overlay);
+                overlay.setOpacity(1);
+            }
+            return;
+        }
+        bindWindow(boundScene);      // 场景上屏前拿不到窗口，这里补一次
         overlay = buildOverlay();
         root.getChildren().add(overlay);
+        lockInput(true);             // 节点挂上去之后再上锁：中途抛异常也不会留下锁
         FadeTransition fade = new FadeTransition(Duration.millis(200), overlay);
         fade.setFromValue(0);
         fade.setToValue(1);
@@ -158,6 +269,7 @@ public final class OfflinePrompt {
         if (overlay == null) {
             return;
         }
+        lockInput(false);
         StackPane node = overlay;
         overlay = null;
         FadeTransition fade = new FadeTransition(Duration.millis(200), node);
@@ -169,6 +281,29 @@ public final class OfflinePrompt {
             }
         });
         fade.play();
+    }
+
+    /**
+     * 锁 / 解锁底下的操作。
+     *
+     * <p>窗口级拦截已经能把事件挡住，这里是兜底：万一有事件从别的路径漏进去
+     * （或者窗口还没拿到、拦截没挂上），底下的系统也不该动。
+     * 两把锁都按来源记账，所以不会误解别的系统（教程、暂停菜单）加的锁。
+     */
+    private void lockInput(boolean locked) {
+        InputHandler input = GameInstance.getInputHandlerStatic();
+        if (input != null) {
+            if (locked) {
+                input.lockControls(InputHandler.LOCK_OFFLINE);
+            } else {
+                input.unlockControls(InputHandler.LOCK_OFFLINE);
+            }
+        }
+        if (locked) {
+            ChatManager.getInstance().lockAdvance(LOCK_OWNER);
+        } else {
+            ChatManager.getInstance().unlockAdvance(LOCK_OWNER);
+        }
     }
 
     private StackPane buildOverlay() {

@@ -186,6 +186,8 @@ public class InputHandler {
     public static final Object LOCK_CREDITS = new Object();
     public static final Object LOCK_MAP_TRANSITION = new Object();
     public static final Object LOCK_DEATH = new Object();
+    /** 断网提示（全屏模态）持有；它还会顺手清掉「断开瞬间正按着」的按键状态。 */
+    public static final Object LOCK_OFFLINE = new Object();
     /** 无来源调用（已废弃的 disableControls/enableControls）使用的兜底来源。 */
     public static final Object LOCK_SYSTEM = new Object();
 

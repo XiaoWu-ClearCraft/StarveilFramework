@@ -81,6 +81,8 @@ public final class NetworkStatus {
     private static volatile List<Endpoint> endpoints = parseEndpoints(DEFAULT_ENDPOINTS);
     private static volatile long intervalSeconds = AUTO_INTERVAL;
     private static volatile int timeoutMs = DEFAULT_TIMEOUT_MS;
+    /** 调试覆盖（见 {@link #setDebugOverride}）：非 null 时无视真实网络。 */
+    private static volatile Boolean debugOverride;
 
     private static final List<Consumer<State>> listeners = new CopyOnWriteArrayList<>();
     private static final AtomicBoolean started = new AtomicBoolean(false);
@@ -256,6 +258,29 @@ public final class NetworkStatus {
         return interfaceWatcher != null && interfaceWatcher.registered;
     }
 
+    /**
+     * <b>调试 / 测试用</b>：不管真实网络如何，强制联网判定的结果。
+     *
+     * <p>内容作者想试「断网提示长什么样、挡住输入没有」时，不用真去拔网线：
+     * 传 {@code false} 就当断网，传 {@code null} 取消覆盖（恢复真实判定）。
+     * 覆盖期间每次探测都直接返回它，所以状态会立刻跟着变。
+     *
+     * <p>正式发布的内容不要留调用 —— 它会让「没网」这件事永远测不出来。
+     */
+    public static void setDebugOverride(Boolean online) {
+        debugOverride = online;
+        Logger("WARNING", "联网判定被调试覆盖: "
+                + (online == null ? "已取消（恢复真实判定）" : online ? "强制在线" : "强制离线"));
+        if (started.get()) {
+            checkNow();
+        }
+    }
+
+    /** 当前的调试覆盖值，没覆盖就是 {@code null}。 */
+    public static Boolean debugOverride() {
+        return debugOverride;
+    }
+
     // ==================== 接口事件（Windows / iphlpapi） ====================
 
     /**
@@ -379,6 +404,10 @@ public final class NetworkStatus {
 
     /** 探测一次：先信系统结论，系统答不上来才自己 TCP 连。 */
     static boolean probeOnce() {
+        Boolean forced = debugOverride;
+        if (forced != null) {
+            return forced;      // 调试覆盖优先，见 setDebugOverride
+        }
         Boolean system = WindowsInternetState.isConnectedToInternet();
         if (system == null) {
             system = WindowsInternetState.hasInternetFlag();
