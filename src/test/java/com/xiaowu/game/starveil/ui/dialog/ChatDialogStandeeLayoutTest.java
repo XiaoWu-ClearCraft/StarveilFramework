@@ -298,28 +298,35 @@ class ChatDialogStandeeLayoutTest {
                 forceLayout(chat);
                 StackPane host = chat.getChatContainer();
                 StackPane pane = chat.standeePaneForTest();
-                javafx.scene.Node image = pane.getChildren().get(0);
+                javafx.scene.image.ImageView image =
+                        (javafx.scene.image.ImageView) pane.getChildren().get(0);
                 double reserved = leftMarginOfLatestDialog(chat) - GAP;   // 左边距去掉 gap
+                double fitHeight = image.getFitHeight();
+                double naturalWidth = fitHeight
+                        * (image.getImage().getWidth() / image.getImage().getHeight());
                 return new double[]{
                         reserved,
                         pane.getTranslateX(),
-                        ((javafx.scene.image.ImageView) image).getFitHeight(),
-                        image.getTranslateY(),
+                        fitHeight,
+                        image.getTranslateX(),
+                        naturalWidth,
                         host.getChildren().indexOf(pane),
                         host.getChildren().indexOf(latestDialogNode(chat)),
-                        host.getWidth()
+                        host.getWidth(),
+                        image.getTranslateY()
                 };
             });
             double reserved = state[0];
-            double canvasW = state[6];
-            double fitHeight = state[2];
+            double canvasW = state[7];
             assertTrue(reserved <= canvasW * 0.05 + 1,
                     "预留宽度应当被上限截住（<= 画布 5%），实际: " + reserved);
-            assertEquals(0.0, state[1], 0.5, "立绘不该被滑出动画留在画面外");
-            assertEquals((fitHeight - 1080) / 2, state[3], 1.0,
-                    "立绘比预留位置宽时应当纵向居中（顶部超出多少、底部就超出多少）");
-            assertTrue(state[5] > state[4],
-                    "对话框必须压在立绘之上（对话框下标 " + state[5] + " 应大于立绘 " + state[4] + "）");
+            assertEquals(0.0, state[1], 0.5, "立绘层不该被滑出动画留在画面外");
+            assertEquals(reserved / 2, state[3] + state[4] / 2, 1.0,
+                    "立绘比预留位置宽时应当横向居中：立绘中心要落在预留区中心（x=" + reserved / 2 + "）");
+            assertEquals(0.0, state[8], 0.5,
+                    "纵向仍按内容给的偏移（没设就是 0），不该被改写");
+            assertTrue(state[6] > state[5],
+                    "对话框必须压在立绘之上（对话框下标 " + state[6] + " 应大于立绘 " + state[5] + "）");
         } finally {
             ContentConfig.setStandeeReservedMaxRatio(oldRatio);
             onFxAndWait(() -> {

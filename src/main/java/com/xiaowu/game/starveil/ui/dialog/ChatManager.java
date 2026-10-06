@@ -567,9 +567,9 @@ public class ChatManager {
         view.setFitHeight(fitH);
         view.setTranslateX(standeeStyle.offsetX());
         view.setTranslateY(standeeStyle.offsetY());
-        // 立绘比「预留位置」还宽 → 会盖到对话框区域：这时纵向居中到预留区中心，
-        // 并（在 showDialog 里）保证对话框压在立绘之上，看起来才是有意为之，
-        // 而不是立绘一头扎在底部、被对话框切一半。
+        // 立绘比「预留位置」还宽 → 会盖到对话框区域：这时把立绘<b>横向</b>居中到预留区中心
+        // （也就是让左右两边超出的部分一样多），纵向仍按内容给的 offsetY 走。
+        // 配合「对话框压在立绘之上」，重叠看起来才是有意为之。
         Image img = view.getImage();
         if (img == null || img.getHeight() <= 0) {
             return;
@@ -579,7 +579,7 @@ public class ChatManager {
         double reserved = Math.min(Math.max(0, standeeStyle.offsetX()) + naturalWidth,
                 vw * ContentConfig.standeeReservedMaxRatio());
         if (naturalWidth > reserved) {
-            view.setTranslateY((fitH - paneH) / 2);
+            view.setTranslateX((reserved - naturalWidth) / 2);
         }
     }
 
