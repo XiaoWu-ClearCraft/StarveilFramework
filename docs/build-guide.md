@@ -173,16 +173,17 @@ public final class init {
         // ContentConfig.setWindowTitle("My Game");
 
         // 字体 —— 框架不带任何字体，不设就用系统字体
-        ContentConfig.setBodyFont("starveil:fonts/my-body.ttf");
-        ContentConfig.setTitleFont("starveil:fonts/my-title.ttf");
-        ContentConfig.setDecorFont("starveil:fonts/my-decor.ttf");
+        // 路径写相对路径就行：类型（fonts）与后缀都由框架推断
+        ContentConfig.setBodyFont("my-body.ttf");
+        ContentConfig.setTitleFont("my-title.ttf");
+        ContentConfig.setDecorFont("my-decor.ttf");
 
         // 窗口图标 —— 不设就用系统默认图标
-        ContentConfig.setAppIcon("starveil:textures/icons/app-icon.png");
+        ContentConfig.setAppIcon("icons/app-icon.png");
 
         // 主菜单 —— 不设则背景纯黑、静默无音乐
-        ContentConfig.setMenuBackground("starveil:textures/backgrounds/main-menu.png");
-        ContentConfig.setMenuMusic("starveil:sounds/music/theme.mp3");
+        ContentConfig.setMenuBackground("backgrounds/main-menu.png");
+        ContentConfig.setMenuMusic("music/theme.mp3");
 
         // 主题色
         ContentConfig.setPrimaryColor("#FF69B4");

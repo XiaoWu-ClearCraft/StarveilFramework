@@ -41,20 +41,30 @@
 | 字体 | `assets/starveil/fonts/**` | |
 | 角色贴图配置 | `assets/starveil/data/entities/player.json` | 动画键写法见下 |
 
-资源路径统一用命名空间写法：`starveil:<类型>/<路径>`，**第一段必须是资源类型**
-（`textures` / `sounds` / `fonts` / `data` / `lang`，对应 `assets/starveil/` 下的第一层目录），
-后面才是子目录与文件名，**并且要带文件后缀**：
+资源路径**直接写相对路径就行**：类型（贴图 / 音频 / 字体 / 数据 / 文案）与文件后缀
+都由框架推断，内容不必记 `textures` 这类类型名：
 
 ```java
 // assets/starveil/textures/character/normal/relaxed.png
-s.image("starveil:textures/character/normal/relaxed.png");
-//        └ 类型 ──┘└ 类型目录下面的路径，照抄 ────────────────┘
+s.image("character/normal/relaxed.png");   // textures 自动补，后缀也可以省
+ContentConfig.setBodyFont("xiaolai-sc-regular.ttf");         // → assets/starveil/fonts/
+ContentConfig.setMenuMusic("music/dream.mp3");               // → assets/starveil/sounds/
+ContentConfig.setMenuBackground("backgrounds/main-menu.png"); // → assets/starveil/textures/
 ```
 
-> 最容易踩的坑：把 `assets/starveil/` 下的**子目录**当成类型，
-> 写成 `starveil:character/normal/relaxed`（少了 `textures`，又没带 `.png`）——
-> 解析会直接失败，日志里会说明是「第一段不是资源类型」并给出建议写法。
-> 旧类型名 `images` / `audio` / `font` 仍然兼容。
+推断规则：在 `assets/starveil/<类型>/` 下按 **贴图 → 音频 → 字体 → 数据 → 文案** 的顺序找，
+命中即止；没写后缀时按类型试常见后缀（贴图 `.png/.jpg/.jpeg/.webp`、音频 `.mp3/.ogg/.wav`、
+字体 `.ttf/.otf`、数据与文案 `.json`），找到才用。
+
+需要精确控制（或想跨类型取文件）时再写显式引用，**显式写法永远优先**：
+
+```java
+s.image("starveil:textures/backgrounds/void-fog.png");            // 命名空间
+s.image("/assets/starveil/textures/backgrounds/void-fog.png");    // 旧式 classpath 路径
+```
+
+> `starveil:<类型>/<路径>` 里的第一段是<b>类型</b>（不是子目录）：写成
+> `starveil:character/...` 会解析失败，日志里会说明原因。
 
 ---
 
@@ -583,8 +593,8 @@ public class Chapter2 implements StoryChapter {
 就把立绘往下推一点，让下半身落到画布外 —— 逻辑画布自带裁剪，多出来的部分不会画出来：
 
 ```java
-// 路径就是 assets/starveil/... 那串，第一段写资源类型、末尾带后缀
-String jiwu = "starveil:textures/character/normal/relaxed.png";
+// 路径直接写相对路径即可（类型与后缀都由框架推断）
+String jiwu = "character/normal/relaxed.png";
 
 // 全身立绘 → 只露上半身：往下推 320（逻辑像素）
 s.say("霁雾", "早上好~", null, jiwu, 0, 320);

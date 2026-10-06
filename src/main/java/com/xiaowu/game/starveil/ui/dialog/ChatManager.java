@@ -1,5 +1,6 @@
 package com.xiaowu.game.starveil.ui.dialog;
 import com.xiaowu.game.starveil.infrastructure.ResourceResolver;
+import com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver;
 
 import com.xiaowu.game.starveil.infrastructure.audio.AudioManager;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
@@ -415,18 +416,17 @@ public class ChatManager {
     /**
      * 立绘加载失败时的可读诊断：写错路径是常见坑，别只丢一句「加载失败」。
      *
-     * <p>路径形如 {@code starveil:textures/character/normal/relaxed.png}：
-     * 第一段是资源类型（textures / sounds / fonts / data / lang），末尾要带文件后缀。
+     * <p>立绘是贴图，内容只需要写类型目录下面的路径（{@code character/normal/relaxed.png}），
+     * 类型由这里补上；显式写 {@code starveil:textures/...} 或 {@code /assets/...} 也行。
      */
-    private String standeeLoadHint(String path) {
-        String resolved = com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver.resolve(path);
+    private String standeeLoadHint(String originalPath, String resolved) {
         if (resolved == null) {
-            return "（这个路径解析不出来：第一段应该是 textures / sounds / fonts / data / lang，"
-                    + "正确写法形如 starveil:textures/character/normal/relaxed.png）";
+            return "（路径解析不出来：" + originalPath + "）";
         }
-        boolean exists = com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver.exists(path);
-        return "（解析为 " + resolved + "：" + (exists ? "文件在，但读不出图片内容" : "找不到该文件")
-                + "；路径要带后缀，形如 starveil:textures/character/normal/relaxed.png）";
+        boolean exists = StarveilResourceResolver.exists(resolved);
+        return "（" + originalPath + " → " + resolved + "："
+                + (exists ? "文件在，但读不出图片内容" : "找不到该文件")
+                + "；立绘写类型目录下的相对路径即可，例如 character/normal/relaxed.png）";
     }
 
     private void updateStandee(String newPath) {
@@ -487,10 +487,12 @@ public class ChatManager {
     }
 
     private void slideInStandee(String path) {
+        String resolved = StarveilResourceResolver.resolveTexture(path);
         try {
-            javafx.scene.image.ImageView view = com.xiaowu.game.starveil.render.TextureNodeFactory.loadSheetView(path, -1, -1);
+            javafx.scene.image.ImageView view = com.xiaowu.game.starveil.render.TextureNodeFactory.loadSheetView(resolved, -1, -1);
             if (view == null || view.getImage() == null || view.getImage().isError()) {
-                Logger("ERROR", "Failed to load standee image: " + path + standeeLoadHint(path));
+                Logger("ERROR", "Failed to load standee image: " + path
+                        + standeeLoadHint(path, resolved));
                 return;
             }
             double paneH = standeePaneHeight();
@@ -544,10 +546,12 @@ public class ChatManager {
     }
 
     private void crossFadeStandee(String newPath) {
+        String resolved = StarveilResourceResolver.resolveTexture(newPath);
         try {
-            javafx.scene.image.ImageView newView = com.xiaowu.game.starveil.render.TextureNodeFactory.loadSheetView(newPath, -1, -1);
+            javafx.scene.image.ImageView newView = com.xiaowu.game.starveil.render.TextureNodeFactory.loadSheetView(resolved, -1, -1);
             if (newView == null || newView.getImage() == null || newView.getImage().isError()) {
-                Logger("ERROR", "Failed to load standee image: " + newPath + standeeLoadHint(newPath));
+                Logger("ERROR", "Failed to load standee image: " + newPath
+                        + standeeLoadHint(newPath, resolved));
                 return;
             }
             double paneH = standeePaneHeight();
@@ -1305,7 +1309,8 @@ public class ChatManager {
             chatContainer.setMouseTransparent(true);
             Runnable doShow = () -> {
                 javafx.scene.image.Image img = new javafx.scene.image.Image(
-                        ResourceResolver.getResourceAsStream(path));
+                        ResourceResolver.getResourceAsStream(
+                                StarveilResourceResolver.resolveTexture(path)));
                 storyImageView = new javafx.scene.image.ImageView(img);
 
                 // 等比缩放到「铺满」而不是「装下」：

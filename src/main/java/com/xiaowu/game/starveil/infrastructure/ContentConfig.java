@@ -388,7 +388,13 @@ public final class ContentConfig {
 
     // ==================== 内部 ====================
 
-    /** 记录新值，并登记「默认路径 → 新路径」的重定向。空路径 = 清空（视为未指定）。 */
+    /**
+     * 记录新值，并登记「默认路径 → 新路径」的重定向。空路径 = 清空（视为未指定）。
+     *
+     * <p>这里只原样记下内容写的路径（{@code ContentConfig.xxx()} 读到的就是它），
+     * 类型推断交给 {@link ResourceResolver}：内容写相对路径（{@code xiaolai-sc-regular.ttf}）
+     * 或显式引用（{@code starveil:fonts/...} / {@code /assets/...}）都能解析。
+     */
     private static String assign(String path, String defaultValue, String what) {
         if (path == null || path.trim().isEmpty()) {
             Logger("WARNING", what + "路径为空，视为未指定（框架不会去加载任何默认文件）");
