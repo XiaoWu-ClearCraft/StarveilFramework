@@ -236,6 +236,49 @@ class ChatDialogStandeeLayoutTest {
         }
         return dialog;
     }
+    /**
+     * 图片被留在 opacity 0（淡入切换被打断）时，下一个对话框要把它恢复成可见。
+     *
+     * <p>这就是现场日志里的状态：层可见=true、层X=0、子节点=1，唯独「图片不透明=0」，
+     * 于是立绘看不见、但对话框还按有立绘让位。
+     */
+    @Test
+    void anImageStuckAtZeroOpacityIsRestored() throws Exception {
+        Assumptions.assumeTrue(toolkitReady, "测试环境起不了 JavaFX 工具包，跳过布局测试");
+        ChatManager chat = ChatManager.getInstance();
+
+        onFxAndWait(() -> {
+            mountInScene(chat);
+            chat.forceCloseAll();
+            chat.setStandee("starveil:testchat/fixture-standee.png");
+            chat.showDialog("甲", "第一句", null, "starveil:testchat/fixture-standee.png");
+            return null;
+        });
+        waitForStandeeSettled(chat);
+        assertEquals(1.0, onFxAndWait(() -> standeeImage(chat).getOpacity()), 0.01,
+                "前置条件：立绘应当是可见的");
+
+        // 模拟「淡入没跑完」：图片停在 opacity 0
+        onFxAndWait(() -> {
+            standeeImage(chat).setOpacity(0);
+            chat.showDialog("甲", "第二句", null, null);
+            return null;
+        });
+        double opacity = onFxAndWait(() -> standeeImage(chat).getOpacity());
+        assertEquals(1.0, opacity, 0.01,
+                "图片停在不可见状态时，下一个对话框应当把它恢复显示，实际 opacity=" + opacity);
+
+        onFxAndWait(() -> {
+            chat.setStandee("");
+            return null;
+        });
+    }
+
+    /** 立绘层里那张图。 */
+    private static javafx.scene.Node standeeImage(ChatManager chat) {
+        return chat.standeePaneForTest().getChildren().get(0);
+    }
+
     /** 立绘层当前状态，断言失败时用来看清到底缺了什么。 */
     private static String standeeState(ChatManager chat) throws Exception {
         return onFxAndWait(() -> {

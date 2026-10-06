@@ -141,6 +141,9 @@ public class ChatManager {
     /** 最近一次立绘滑动动画（滑入 / 滑出）。用来判断「现在是不是动画在跑」，见 {@link #ensureStandeeOnScreen()}。 */
     private TranslateTransition standeeSlide;
 
+    /** 最近一次立绘淡入淡出（切换立绘）。同上，避免自愈打断正在跑的淡入。 */
+    private FadeTransition standeeFade;
+
     private StackPane standeePane;
     private ImageView standeeImageView;
 
@@ -488,26 +491,44 @@ public class ChatManager {
     }
 
     /**
-     * 立绘「应该在画面上」却停在画面外时把它拉回来。
+     * 立绘「应该在画面上」却没显示时把它摆回来。
      *
-     * <p>踩过的坑：滑出动画（收起立绘）被打断后不会走 onFinished，立绘层就永远停在
-     * 负的 translateX 上 —— 立绘看不见了，但 {@code isVisible()} 还是 true，
-     * 于是对话框继续按「有立绘」缩在右边。这里在每次真正布局对话框时自愈：
-     * 只要没有滑动动画在跑、立绘层可见、图片还在，位置就该是 0。
+     * <p>踩过的坑（两个，都是异步动画留下的残局）：
+     * <ol>
+     *   <li>滑出（收起立绘）动画被打断 → 层停在负 translateX，立绘在画面外；</li>
+     *   <li>{@link #crossFadeStandee(String)} 把新图 opacity 设成 0 等淡入，
+     *       淡入没跑完 → <b>图片</b>停在 opacity 0 —— 层可见、位置也对，就是看不见。</li>
+     * </ol>
+     * 两处的可见性标志都还是 true，所以任何「是否加载过 / 是否可见」的判断都会以为立绘在。
+     * 这里在每次真正布局对话框时自愈：只要没有立绘动画在跑、层可见、图片还在，
+     * 位置就该是 0、不透明度就该是 1。
      */
     private void ensureStandeeOnScreen() {
         if (standeeImageView == null || !standeePane.isVisible()) {
             return;
         }
-        if (standeeSlide != null
-                && standeeSlide.getStatus() == javafx.animation.Animation.Status.RUNNING) {
+        if (isRunning(standeeSlide) || isRunning(standeeFade)) {
             return;
         }
+        String healed = null;
         if (standeePane.getTranslateX() < -0.5) {
-            Logger("DEBUG", "立绘停在画面外（x=" + Math.round(standeePane.getTranslateX())
-                    + "），已拉回原位");
+            healed = "位置 x=" + Math.round(standeePane.getTranslateX());
             standeePane.setTranslateX(0);
         }
+        if (standeeImageView.getOpacity() < 0.99) {
+            healed = (healed == null ? "" : healed + "；")
+                    + "不透明度=" + standeeImageView.getOpacity();
+            standeeImageView.setOpacity(1);
+        }
+        if (healed != null) {
+            Logger("DEBUG", "立绘被动画留在「看不见」的状态（" + healed + "），已恢复显示");
+        }
+    }
+
+    /** 动画是不是正在跑（null 视为没在跑）。 */
+    private static boolean isRunning(javafx.animation.Animation animation) {
+        return animation != null
+                && animation.getStatus() == javafx.animation.Animation.Status.RUNNING;
     }
 
     /** 当前画布高度（布局还没跑过时按逻辑画布 1080 算）。 */
@@ -581,6 +602,7 @@ public class ChatManager {
             standeeImageView = view;
             standeeImageView.setPreserveRatio(true);
             applyStandeeStyle(standeeImageView, paneH);
+            standeeImageView.setOpacity(1);   // 新图必须是可见的（别继承任何残留状态）
             standeePane.getChildren().setAll(standeeImageView);
             double standeeH = standeeFitHeight(paneH);
             double imgW = view.getImage().getWidth() * (standeeH / view.getImage().getHeight());
@@ -652,6 +674,7 @@ public class ChatManager {
                 return;
             }
             long token = ++standeeToken;
+            Logger("DEBUG", "立绘淡入切换: " + currentStandeePath + " → " + newPath);   // 换立绘走这条（滑入只在「从无到有」时走）
             double paneH = standeePaneHeight();
             newView.setPreserveRatio(true);
             applyStandeeStyle(newView, paneH);
@@ -673,11 +696,20 @@ public class ChatManager {
             fadeIn.setToValue(1);
             fadeIn.setOnFinished(f -> {
                 if (token != standeeToken) {
-                    return;   // 期间又换了立绘：这次收尾作废
+                    // 期间又换了立绘：这张不会留在画面上，但也不能让它永远停在不透明 0
+                    newView.setOpacity(1);
+                    return;
                 }
                 standeeImageView = newView;
                 standeePane.setOpacity(1);
             });
+            // 淡入被打断时（例如动画被 stop）兜底：别让图片永远停在「看不见」
+            fadeIn.statusProperty().addListener((o, ov, nv) -> {
+                if (nv == javafx.animation.Animation.Status.STOPPED && token == standeeToken) {
+                    newView.setOpacity(1);
+                }
+            });
+            standeeFade = fadeIn;
             fadeOut.play();
             fadeIn.play();
             currentStandeePath = newPath;
