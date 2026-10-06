@@ -152,6 +152,34 @@ public final class ContentConfig {
         return windowTitle != null;
     }
 
+    // ==================== 立绘预留宽度 ====================
+
+    /** 默认上限：不超过画布宽的一半。 */
+    public static final double DEFAULT_STANDEE_RESERVED_MAX_RATIO = 0.5;
+
+    /** 对话框为立绘让出的宽度上限（占逻辑画布宽的比例）。 */
+    private static volatile double standeeReservedMaxRatio = DEFAULT_STANDEE_RESERVED_MAX_RATIO;
+
+    /**
+     * 设置「对话框最多为立绘让出多宽」（占逻辑画布宽的比例，0~0.8）。
+     *
+     * <p>默认 {@value #DEFAULT_STANDEE_RESERVED_MAX_RATIO}（画布宽的一半）：立绘再宽也不至于
+     * 把对话框挤成一条。超过上限时立绘会与对话框重叠 —— 那时候框架会把立绘<b>纵向居中</b>
+     * （放在预留区的中间，而不是贴着底部），并且保证<b>对话框压在立绘之上</b>，
+     * 所以即使重叠也读得到字。
+     *
+     * <p>运行期改也生效（下次布局时按新值算）。
+     */
+    public static void setStandeeReservedMaxRatio(double ratio) {
+        double v = Math.max(0, Math.min(0.8, ratio));
+        standeeReservedMaxRatio = v;
+        Logger("INFO", "立绘预留宽度上限: 画布宽的 " + Math.round(v * 100) + "%");
+    }
+
+    public static double standeeReservedMaxRatio() {
+        return standeeReservedMaxRatio;
+    }
+
     // ==================== 联网相关 ====================
 
     /** 断网时是否强制弹窗提示（默认关闭）。 */
@@ -430,6 +458,7 @@ public final class ContentConfig {
         gameName = null;
         windowTitle = null;
         offlinePromptEnabled = false;
+        standeeReservedMaxRatio = DEFAULT_STANDEE_RESERVED_MAX_RATIO;
         primaryColor = DEFAULT_PRIMARY_COLOR;
         secondaryColor = DEFAULT_SECONDARY_COLOR;
         tertiaryColor = DEFAULT_TERTIARY_COLOR;

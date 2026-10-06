@@ -1,5 +1,6 @@
 package com.xiaowu.game.starveil.ui.dialog;
 
+import com.xiaowu.game.starveil.infrastructure.ContentConfig;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
@@ -272,6 +273,60 @@ class ChatDialogStandeeLayoutTest {
             chat.setStandee("");
             return null;
         });
+    }
+
+    /**
+     * 预留宽度有上限：超过上限时立绘纵向居中，并且对话框压在立绘之上。
+     */
+    @Test
+    void anOversizedStandeeIsCappedCentredAndStaysBehindTheDialog() throws Exception {
+        Assumptions.assumeTrue(toolkitReady, "测试环境起不了 JavaFX 工具包，跳过布局测试");
+        ChatManager chat = ChatManager.getInstance();
+        double oldRatio = ContentConfig.standeeReservedMaxRatio();
+        ContentConfig.setStandeeReservedMaxRatio(0.05);   // 故意压到很小，逼出「立绘比预留宽」
+        try {
+            onFxAndWait(() -> {
+                mountInScene(chat);
+                chat.forceCloseAll();
+                chat.setStandee("starveil:testchat/fixture-standee.png");
+                chat.showDialog("甲", "第一句", null, "starveil:testchat/fixture-standee.png");
+                return null;
+            });
+            waitForStandeeSettled(chat);
+
+            double[] state = onFxAndWait(() -> {
+                forceLayout(chat);
+                StackPane host = chat.getChatContainer();
+                StackPane pane = chat.standeePaneForTest();
+                javafx.scene.Node image = pane.getChildren().get(0);
+                double reserved = leftMarginOfLatestDialog(chat) - GAP;   // 左边距去掉 gap
+                return new double[]{
+                        reserved,
+                        pane.getTranslateX(),
+                        ((javafx.scene.image.ImageView) image).getFitHeight(),
+                        image.getTranslateY(),
+                        host.getChildren().indexOf(pane),
+                        host.getChildren().indexOf(latestDialogNode(chat)),
+                        host.getWidth()
+                };
+            });
+            double reserved = state[0];
+            double canvasW = state[6];
+            double fitHeight = state[2];
+            assertTrue(reserved <= canvasW * 0.05 + 1,
+                    "预留宽度应当被上限截住（<= 画布 5%），实际: " + reserved);
+            assertEquals(0.0, state[1], 0.5, "立绘不该被滑出动画留在画面外");
+            assertEquals((fitHeight - 1080) / 2, state[3], 1.0,
+                    "立绘比预留位置宽时应当纵向居中（顶部超出多少、底部就超出多少）");
+            assertTrue(state[5] > state[4],
+                    "对话框必须压在立绘之上（对话框下标 " + state[5] + " 应大于立绘 " + state[4] + "）");
+        } finally {
+            ContentConfig.setStandeeReservedMaxRatio(oldRatio);
+            onFxAndWait(() -> {
+                chat.setStandee("");
+                return null;
+            });
+        }
     }
 
     /** 立绘层里那张图。 */

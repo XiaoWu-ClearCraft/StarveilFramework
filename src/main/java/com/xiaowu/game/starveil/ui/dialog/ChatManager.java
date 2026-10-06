@@ -1,4 +1,5 @@
 package com.xiaowu.game.starveil.ui.dialog;
+import com.xiaowu.game.starveil.infrastructure.ContentConfig;
 import com.xiaowu.game.starveil.infrastructure.ResourceResolver;
 import com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver;
 
@@ -365,6 +366,7 @@ public class ChatManager {
             currentDialog = dialogUI.createDialogPanel(finalSpeaker, finalDisplayMessage, voicePath,
                     () -> handleContinueClick(future), null);
             chatContainer.getChildren().add(currentDialog);
+            ensureDialogAboveStandee();   // 有覆盖关系时对话框要压在立绘之上
             if (slideIn) {
                 animateDialogForStandeeSlideIn();
             } else if (slideOut) {
@@ -383,9 +385,8 @@ public class ChatManager {
         ensureStandeeOnScreen();
         double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
         double gap = 16;
-        // 立绘可能被内容挪过位置/放大：按它实际占到的右边界让位。
-        // 上限 80% 画布宽：立绘特别宽（或放大很多）时也要给对话框留出可读的宽度。
-        double sw = Math.min(standeeRightEdge(), vw * 0.8);
+        // 立绘让出的宽度（受内容设定的上限约束）；上限之外的部分让对话框压在立绘上
+        double sw = standeeReservedWidth();
         double leftMar = sw > 0 ? sw + gap : gap;
         double rightMar = gap;
         double bottomMar = 50;
@@ -398,7 +399,7 @@ public class ChatManager {
     private void animateDialogForStandeeSlideIn() {
         if (currentDialog == null || currentStandeeWidth <= 0) return;
         double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
-        double sw = Math.min(standeeRightEdge(), vw * 0.8);
+        double sw = standeeReservedWidth();
         double gap = 16;
         double startW = vw - gap * 2;
         double endW = vw - sw - gap * 2;
@@ -428,7 +429,7 @@ public class ChatManager {
         }
         double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
         double gap = 16;
-        oldW = Math.min(oldW, vw * 0.8);
+        oldW = Math.min(oldW, vw * ContentConfig.standeeReservedMaxRatio());
         double startW = vw - oldW - gap * 2;
         double endW = vw - gap * 2;
         currentDialog.setMaxWidth(startW);
@@ -550,12 +551,52 @@ public class ChatManager {
                 + " 路径=" + currentStandeePath);
     }
 
+    /**
+     * 对话框给立绘让出的宽度：立绘实际占到的宽度，但不超过内容设定的上限
+     * （{@link ContentConfig#setStandeeReservedMaxRatio(double)}，默认画布宽的一半）。
+     */
+    private double standeeReservedWidth() {
+        double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
+        return Math.min(standeeRightEdge(), vw * ContentConfig.standeeReservedMaxRatio());
+    }
+
     /** 把图片按当前样式摆好（尺寸 + 偏移）。 */
     private void applyStandeeStyle(ImageView view, double paneH) {
         if (view == null) return;
-        view.setFitHeight(standeeFitHeight(paneH));
+        double fitH = standeeFitHeight(paneH);
+        view.setFitHeight(fitH);
         view.setTranslateX(standeeStyle.offsetX());
         view.setTranslateY(standeeStyle.offsetY());
+        // 立绘比「预留位置」还宽 → 会盖到对话框区域：这时纵向居中到预留区中心，
+        // 并（在 showDialog 里）保证对话框压在立绘之上，看起来才是有意为之，
+        // 而不是立绘一头扎在底部、被对话框切一半。
+        Image img = view.getImage();
+        if (img == null || img.getHeight() <= 0) {
+            return;
+        }
+        double naturalWidth = standeeStyle.displayWidth(paneH, img.getWidth(), img.getHeight());
+        double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
+        double reserved = Math.min(Math.max(0, standeeStyle.offsetX()) + naturalWidth,
+                vw * ContentConfig.standeeReservedMaxRatio());
+        if (naturalWidth > reserved) {
+            view.setTranslateY((fitH - paneH) / 2);
+        }
+    }
+
+    /**
+     * 对话框必须压在立绘之上：有覆盖关系时（立绘比预留位置宽）玩家仍然要能读字。
+     * 立绘层永远待在 overlay 之上、所有对话框之下。
+     */
+    private void ensureDialogAboveStandee() {
+        if (currentDialog == null || standeePane == null || storyImagePane == null) {
+            return;
+        }
+        int dialogIndex = chatContainer.getChildren().indexOf(currentDialog);
+        int standeeIndex = chatContainer.getChildren().indexOf(standeePane);
+        if (dialogIndex >= 0 && standeeIndex > dialogIndex) {
+            chatContainer.getChildren().remove(standeePane);
+            chatContainer.getChildren().add(dialogIndex, standeePane);
+        }
     }
 
     /**
