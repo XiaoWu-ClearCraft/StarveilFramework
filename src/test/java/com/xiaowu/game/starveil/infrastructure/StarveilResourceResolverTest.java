@@ -97,6 +97,44 @@ class StarveilResourceResolverTest {
     }
 
     @Test
+    void theTypeIsInjectedIntoNamespacedPaths() {
+        // 类型由代码给：立绘/图标这类调用点知道自己是贴图，内容不必写 textures
+        assertEquals("/assets/starveil/textures/character/normal/relaxed.png",
+                StarveilResourceResolver.resolveTexture("starveil:character/normal/relaxed.png"));
+        assertEquals("/assets/starveil/fonts/xiaolai-sc-regular.ttf",
+                StarveilResourceResolver.resolveFont("starveil:xiaolai-sc-regular.ttf"));
+        assertEquals("/assets/starveil/sounds/music/dream.mp3",
+                StarveilResourceResolver.resolveSound("starveil:music/dream.mp3"));
+        assertEquals("/assets/starveil/data/worlds/gravity-test.json",
+                StarveilResourceResolver.resolveData("starveil:worlds/gravity-test.json"));
+    }
+
+    @Test
+    void anExplicitTypeInThePathIsRespected() {
+        // 内容自己写了类型就按它来（跨类型 / 精确控制）
+        assertEquals("/assets/starveil/textures/a.png",
+                StarveilResourceResolver.resolveTexture("starveil:textures/a.png"));
+        assertEquals("/assets/starveil/sounds/x.mp3",
+                StarveilResourceResolver.resolveTexture("starveil:sounds/x.mp3"));
+        // 旧式绝对路径原样
+        assertEquals("/assets/starveil/textures/a.png",
+                StarveilResourceResolver.resolveTexture("/assets/starveil/textures/a.png"));
+    }
+
+    @Test
+    void theInjectedTypeAlsoUsesOtherNamespaces() {
+        assertTrue(StarveilResourceResolver.registerNamespace("plug", "/assets/shared"));
+        try {
+            assertEquals("/assets/shared/textures/icon.png",
+                    StarveilResourceResolver.resolveTexture("plug:icon.png"));
+            assertEquals("/assets/shared/sounds/click.mp3",
+                    StarveilResourceResolver.resolveSound("plug:click.mp3"));
+        } finally {
+            StarveilResourceResolver.unregisterNamespace("plug");
+        }
+    }
+
+    @Test
     void explicitReferencesAlwaysWinOverTheType() {
         // 命名空间 / 绝对 / 旧式 assets 路径都原样解析
         assertEquals("/assets/starveil/textures/a.png",

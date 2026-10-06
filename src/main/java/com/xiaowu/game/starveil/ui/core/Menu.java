@@ -107,7 +107,10 @@ public class Menu extends Application {
                 // 一旦内容不带图标就直接 NPE，整个主菜单起不来。
                 String iconPath = com.xiaowu.game.starveil.infrastructure.ContentConfig.appIcon();
                 if (iconPath != null && !iconPath.isEmpty()) {
-                    try (java.io.InputStream iconStream = ResourceResolver.getResourceAsStream(iconPath)) {
+                    // 这里知道它是贴图：类型由代码补上
+                    String resolvedIcon = com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver
+                            .resolveTexture(iconPath);
+                    try (java.io.InputStream iconStream = ResourceResolver.getResourceAsStream(resolvedIcon)) {
                         if (iconStream != null) {
                             current.getIcons().add(new Image(iconStream));
                         }
@@ -231,7 +234,10 @@ public class Menu extends Application {
     private static void playMenuMusic() {
         String music = com.xiaowu.game.starveil.infrastructure.ContentConfig.menuMusic();
         if (music != null && !music.isEmpty()) {
-            AudioManager.playBackgroundMusic(music, true);
+            // 这里知道它是音频：类型由代码补上，内容只写 starveil:music/dream.mp3 或 music/dream.mp3
+            AudioManager.playBackgroundMusic(
+                    com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver
+                            .resolveSound(music), true);
         }
     }
 
@@ -244,7 +250,10 @@ public class Menu extends Application {
      * —— 表现为窗口一显示就崩。框架不带字体时必须走这里。
      */
     static Font safeFont(String resourcePath, double size) {
-        try (java.io.InputStream is = ResourceResolver.getResourceAsStream(resourcePath)) {
+        // 这里知道它是字体：类型由代码补上（内容写 starveil:xiaolai-sc-regular.ttf 即可）
+        String resolved = com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver
+                .resolveFont(resourcePath);
+        try (java.io.InputStream is = ResourceResolver.getResourceAsStream(resolved)) {
             if (is != null) {
                 Font f = Font.loadFont(is, size);
                 if (f != null) {
@@ -272,7 +281,10 @@ public class Menu extends Application {
         // 缺图直接 NPE，主菜单整个起不来。
         String bgPath = com.xiaowu.game.starveil.infrastructure.ContentConfig.menuBackground();
         if (bgPath != null && !bgPath.isEmpty()) {
-            try (java.io.InputStream is = ResourceResolver.getResourceAsStream(bgPath)) {
+            // 这里知道它是贴图：类型由代码补上
+            String resolvedBg = com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver
+                    .resolveTexture(bgPath);
+            try (java.io.InputStream is = ResourceResolver.getResourceAsStream(resolvedBg)) {
                 if (is != null) {
                     Image img = new Image(is);
                     if (!img.isError() && img.getWidth() > 0) {

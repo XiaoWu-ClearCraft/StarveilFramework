@@ -41,28 +41,34 @@
 | 字体 | `assets/starveil/fonts/**` | |
 | 角色贴图配置 | `assets/starveil/data/entities/player.json` | 动画键写法见下 |
 
-资源路径**直接写相对路径就行**：类型（贴图 / 音频 / 字体 / 数据 / 文案）与文件后缀
-都由框架推断，内容不必记 `textures` 这类类型名（相对路径属于 `starveil` 命名空间，
-见下面「命名空间」）：
+资源路径**不用写类型**：调用方本来就知道自己在加载什么
+（立绘、图标、菜单背景 → 贴图；字体 → 字体；音乐 → 音频；关卡/配置 → 数据），
+类型由代码补上。所以下面三种写法等价，按顺手的来：
 
 ```java
-// assets/starveil/textures/character/normal/relaxed.png
-s.image("character/normal/relaxed.png");   // textures 自动补，后缀也可以省
-ContentConfig.setBodyFont("xiaolai-sc-regular.ttf");         // → assets/starveil/fonts/
-ContentConfig.setMenuMusic("music/dream.mp3");               // → assets/starveil/sounds/
-ContentConfig.setMenuBackground("backgrounds/main-menu.png"); // → assets/starveil/textures/
+// 命名空间 + 类型目录下面的路径（推荐，一眼看出是哪个资源根的）
+s.say("???", "早上好~", null, "starveil:character/normal/relaxed.png");
+// 相对路径（属于 starveil 命名空间）
+s.image("backgrounds/void-fog.png");
+// 自己写类型（需要精确控制或跨类型时）
+s.image("starveil:textures/backgrounds/void-fog.png");
 ```
 
-推断规则：在 `assets/starveil/<类型>/` 下按 **贴图 → 音频 → 字体 → 数据 → 文案** 的顺序找，
-命中即止；没写后缀时按类型试常见后缀（贴图 `.png/.jpg/.jpeg/.webp`、音频 `.mp3/.ogg/.wav`、
-字体 `.ttf/.otf`、数据与文案 `.json`），找到才用。
+三者的解析结果分别是：
 
-需要精确控制（或想跨类型取文件）时再写显式引用，**显式写法永远优先**：
-
-```java
-s.image("starveil:textures/backgrounds/void-fog.png");            // 命名空间
-s.image("/assets/starveil/textures/backgrounds/void-fog.png");    // 旧式 classpath 路径
 ```
+starveil:character/normal/relaxed.png  → /assets/starveil/textures/character/normal/relaxed.png
+backgrounds/void-fog.png               → /assets/starveil/textures/backgrounds/void-fog.png
+```
+
+规则：
+
+- **路径里自己写了类型**（`starveil:textures/…`）就以你写的为准 —— 那是明确指定；
+- 否则按调用点的类型补类型段（贴图/音频/字体/数据/文案）；
+- **后缀可以省**：会按类型试常见后缀（贴图 `.png/.jpg/.jpeg/.webp`、音频 `.mp3/.ogg/.wav`、
+  字体 `.ttf/.otf`、数据与文案 `.json`），找到才用；
+- 相对路径（不带命名空间）默认属于 `starveil` 命名空间；写 `xxx:...` 就是 `xxx` 命名空间的事，
+  见下。
 
 #### 命名空间：谁的资源
 
@@ -79,13 +85,15 @@ Starveil.resources().namespaces();                        // 已注册的命名�
 ```
 
 规则与「数据键」的命名空间一致：`starveil` 是**引擎保留**的（不给注册 / 注销），
-插件用自己的名字（建议就用插件 id）。命名空间里的第二段仍是资源类型
-（`textures` / `sounds` / `fonts` / `data` / `lang`）；不是类型时按「命名空间根下的普通路径」
-处理，所以插件也可以有自己的目录结构。未注册的命名空间会直接报错并在日志里列出已注册的名字。
+插件用自己的名字（建议就用插件 id）。类型注入对每个命名空间都生效
+（`myplugin:icon.png` 在贴图调用点 → `/assets/myplugin/textures/icon.png`）。
 
-> `starveil:<类型>/<路径>` 里的第二段是<b>类型</b>（不是子目录）：写成
-> `starveil:character/...` 会解析到 `assets/starveil/character/...`（不存在），
-> 日志里会给出正确写法。
+命名空间里第二段**不是**已知类型时，按「命名空间根下的普通路径」处理，
+所以插件可以有自己的一套目录结构。未注册的命名空间会直接报错，并在日志里列出已注册的名字。
+
+> 泛用入口（`Starveil.resources().openStream(...)`、`ResourceResolver` 这类**不知道类型**的地方）
+> 没法补类型：那里的路径要么写相对路径让框架推断，要么把类型写全
+> （`starveil:character/...` 在泛用入口下会当成 `assets/starveil/character/...`，日志会提示）。
 
 ---
 

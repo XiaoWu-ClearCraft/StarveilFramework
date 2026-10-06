@@ -209,9 +209,7 @@ public class StarveilResourceResolver {
         String namespace = path.substring(0, colon);
         String root = NAMESPACE_ROOTS.get(namespace);
         if (root == null) {
-            LoggerManager.Logger("WARNING", "资源命名空间未注册: " + namespace + "（" + path + "）"
-                    + " —— 已注册的有 " + namespaces()
-                    + "；插件应当在加载时 registerNamespace(\"自己的名字\")");
+            warnUnregisteredNamespace(namespace, path);
             return null;
         }
         String rest = path.substring(colon + 1);
@@ -233,21 +231,17 @@ public class StarveilResourceResolver {
             }
             filePath = defaultFile;
         }
-        String base = root + "/" + realType;
-        String primary = base + "/" + filePath;
-        if (existsResolved(primary)) {
-            return primary;
+        return resolveTypeInside(root, realType, filePath);
+    }
+
+    /** 命名空间没注册时的提示（多半是插件忘了注册，或者名字拼错）。 */
+    private static void warnUnregisteredNamespace(String namespace, String path) {
+        if (WARNED.size() > 64 || !WARNED.add("ns:" + namespace)) {
+            return;
         }
-        // 带子类目录时查找失败，忽略子类（第一个目录段）再尝试一次
-        int subSlash = filePath.indexOf('/');
-        if (subSlash > 0) {
-            String plainFile = filePath.substring(subSlash + 1);
-            String fallback = base + "/" + plainFile;
-            if (existsResolved(fallback)) {
-                return fallback;
-            }
-        }
-        return primary;
+        LoggerManager.Logger("WARNING", "资源命名空间未注册: " + namespace + "（" + path + "）"
+                + " —— 已注册的有 " + namespaces()
+                + "；插件加载时框架会按插件 id 自动注册，自定义的话调 registerNamespace(\"名字\")");
     }
 
     /**
@@ -340,15 +334,21 @@ public class StarveilResourceResolver {
      *
      * <p>规则：
      * <ol>
-     *   <li>已经是显式引用（{@code starveil:...}、以 {@code /} 开头、或以 {@code assets/} 开头）
-     *       时原样解析 —— 显式写法永远优先，需要跨类型或旧式路径时仍然可用；</li>
-     *   <li>否则按 {@code /assets/starveil/<type>/<path>} 解释；</li>
+     *   <li><b>类型由调用方给</b>，路径里可以写命名空间 +「类型目录下面的路径」：
+     *       {@code starveil:character/normal/relaxed.png} 会在命名空间
+     *       {@code starveil}（= {@code /assets/starveil}）下面补上类型段
+     *       {@code textures} → {@code /assets/starveil/textures/character/normal/relaxed.png}。
+     *       立绘、图标、字体这类调用点本来就知道自己是哪种资源，内容不该再写一遍类型；</li>
+     *   <li>没写命名空间的相对路径（{@code character/normal/relaxed.png}）按 {@code starveil}
+     *       命名空间处理；</li>
+     *   <li>路径里<b>自己写了类型</b>（{@code starveil:textures/…}）时尊重它 —— 需要精确控制
+     *       或跨类型时用；旧式 {@code /assets/...} 路径原样解析；</li>
      *   <li>没写后缀时按类型试常见后缀（贴图 .png/.jpg/…、音频 .mp3/…、字体 .ttf/…、
      *       数据 .json），<b>找到才用</b>，所以写不写后缀都行。</li>
      * </ol>
      *
      * @param type 资源类型，见 {@link #TYPE_TEXTURES} 等
-     * @param path 类型目录下的相对路径；也可以是显式引用
+     * @param path 命名空间下的路径（可带命名空间，也可省掉类型段）
      * @return classpath 绝对路径；解析不出来时返回 null
      */
     public static String resolveAs(String type, String path) {
@@ -360,16 +360,45 @@ public class StarveilResourceResolver {
             // 类型不认识：当普通引用处理，走原来的规则（并在需要时报错提示）
             return resolve(path);
         }
-        if (isExplicitReference(path)) {
-            return resolve(path);
+        String namespace = namespaceOf(path);
+        if (namespace != null) {
+            String root = namespaceRoot(namespace);
+            if (root == null) {
+                warnUnregisteredNamespace(namespace, path);
+                return null;
+            }
+            String rest = path.substring(path.indexOf(':') + 1);
+            if (rest.isEmpty()) {
+                return root + "/" + realType;
+            }
+            if (canonicalTypeOf(rest) != null) {
+                // 内容自己写了类型（textures / sounds / …）：尊重它
+                return resolve(path);
+            }
+            return resolveTypeInside(root, realType, rest);
         }
-        String candidate = resolve(NAMESPACE + ":" + realType + "/" + path);
+        if (path.startsWith("/") || path.startsWith("assets/")) {
+            return resolve(path);   // 旧式绝对路径：原样
+        }
+        String root = namespaceRoot(NAMESPACE);
+        return resolveTypeInside(root, realType, path);
+    }
+
+    /**
+     * 在某个资源根下，把路径按类型解释成 classpath 路径（找不到时返回按规则算出的那条）。
+     *
+     * <p>顺带两个方便：带子类目录查找失败时会忽略第一个目录段再试一次
+     * （对应「子类目录可省略」的老约定）；没写后缀时按类型试常见后缀。
+     */
+    private static String resolveTypeInside(String root, String realType, String path) {
+        String base = root + "/" + realType;
+        String candidate = base + "/" + path;
         if (existsResolved(candidate)) {
             return candidate;
         }
         if (!hasFileExtension(path)) {
             for (String ext : EXTENSION_CANDIDATES.getOrDefault(realType, List.of())) {
-                String withExt = resolve(NAMESPACE + ":" + realType + "/" + path + ext);
+                String withExt = candidate + ext;
                 if (existsResolved(withExt)) {
                     LoggerManager.Logger("DEBUG", "资源路径没写后缀，按类型补上了: "
                             + path + " → " + withExt);
@@ -377,8 +406,31 @@ public class StarveilResourceResolver {
                 }
             }
         }
-        // 找不到也把按规则算出来的路径返回：报错信息里能看到它，便于对照
+        int subSlash = path.indexOf('/');
+        if (subSlash > 0) {
+            String plainFile = path.substring(subSlash + 1);
+            String fallback = base + "/" + plainFile;
+            if (existsResolved(fallback)) {
+                return fallback;
+            }
+        }
         return candidate;
+    }
+
+    /**
+     * 命名空间后面的第一段是不是<b>规范类型名</b>（textures / sounds / fonts / data / lang）。
+     *
+     * <p>只看规范名，不看旧别名：别名（如 {@code music}）很容易和真实子目录同名
+     * （{@code sounds/music/dream.mp3} 写成 {@code starveil:music/dream.mp3}），
+     * 那种情况应当按「子目录」理解，别名解释交给后面的子目录回退兜住。
+     */
+    private static String canonicalTypeOf(String rest) {
+        int slash = rest.indexOf('/');
+        String type = (slash < 0 ? rest : rest.substring(0, slash)).toLowerCase();
+        return switch (type) {
+            case TYPE_TEXTURES, TYPE_SOUNDS, TYPE_FONTS, TYPE_DATA, TYPE_LANG -> type;
+            default -> null;
+        };
     }
 
     /** 是否已经是显式引用（命名空间 / 绝对 / 旧式 assets 路径）。 */

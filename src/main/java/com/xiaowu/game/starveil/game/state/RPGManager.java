@@ -49,7 +49,10 @@ public class RPGManager extends Application {
         // 原实现用 Objects.requireNonNull 包着，缺图直接 NPE。
         String iconPath = com.xiaowu.game.starveil.infrastructure.ContentConfig.appIcon();
         if (iconPath != null && !iconPath.isEmpty()) {
-            try (java.io.InputStream iconStream = ResourceResolver.getResourceAsStream(iconPath)) {
+            // 这里知道它是贴图：类型由代码补上
+            String resolvedIcon = com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver
+                    .resolveTexture(iconPath);
+            try (java.io.InputStream iconStream = ResourceResolver.getResourceAsStream(resolvedIcon)) {
                 if (iconStream != null) {
                     stage.getIcons().add(new Image(iconStream));
                 }

@@ -21,7 +21,11 @@ public final class TextureNodeFactory {
     /**
      * 加载贴图节点。动画贴图自动播放，静态贴图返回普通 ImageView。
      *
-     * @param path       资源路径（支持 starveil: 命名空间或旧式 /assets/... 路径）
+     * <p>这是<b>贴图</b>工厂：类型由这里补上，内容写命名空间或相对路径都行
+     * （{@code starveil:character/relaxed.png}、{@code character/relaxed.png}、
+     * {@code starveil:textures/character/relaxed.png} 三种写法等价）。
+     *
+     * @param path       资源路径
      * @param fitWidth   期望宽度（&lt;=0 表示按原尺寸）
      * @param fitHeight  期望高度（&lt;=0 表示按原尺寸）
      * @return 贴图节点；加载失败返回 null
@@ -30,7 +34,8 @@ public final class TextureNodeFactory {
         if (path == null) {
             return null;
         }
-        AnimationSheet sheet = AnimationSheet.load(path);
+        String resolved = StarveilResourceResolver.resolveTexture(path);
+        AnimationSheet sheet = AnimationSheet.load(resolved);
         if (sheet != null && sheet.getFrameCount() > 1 && sheet.getFrameRate() > 0) {
             AnimationSheetView view = new AnimationSheetView();
             view.playSheet(sheet);
@@ -48,12 +53,14 @@ public final class TextureNodeFactory {
 
     /**
      * 加载动画表视图（静态图同样退化为单帧视图）。用于需要按状态切换动画的实体。
+     *
+     * <p>路径按<b>贴图</b>解释，见 {@link #load(String, double, double)}。
      */
     public static AnimationSheetView loadSheetView(String path, double fitWidth, double fitHeight) {
         if (path == null) {
             return null;
         }
-        AnimationSheet sheet = AnimationSheet.load(path);
+        AnimationSheet sheet = AnimationSheet.load(StarveilResourceResolver.resolveTexture(path));
         if (sheet == null) {
             return null;
         }
@@ -64,13 +71,14 @@ public final class TextureNodeFactory {
     }
 
     /**
-     * 加载贴图为 Image（非动画）。
+     * 加载贴图为 Image（非动画）。路径按<b>贴图</b>解释。
      */
     public static Image loadImage(String path) {
         if (path == null) {
             return null;
         }
-        try (java.io.InputStream is = StarveilResourceResolver.openStream(path)) {
+        try (java.io.InputStream is = StarveilResourceResolver.openStream(
+                StarveilResourceResolver.resolveTexture(path))) {
             if (is != null) {
                 Image img = new Image(new java.io.ByteArrayInputStream(is.readAllBytes()));
                 return img.isError() ? null : img;
