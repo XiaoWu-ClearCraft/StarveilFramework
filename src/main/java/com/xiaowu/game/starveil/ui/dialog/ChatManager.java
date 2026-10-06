@@ -131,6 +131,13 @@ public class ChatManager {
      */
     private StandeeStyle standeeStyle = StandeeStyle.standard();
 
+    /**
+     * 立绘操作的世代号：滑入 / 淡入淡出 / 收起都是异步动画，
+     * 回调跑完前内容可能已经设了下一张立绘 —— 旧动画的收尾<b>不能</b>动新的立绘，
+     * 否则会出现「刚设的立绘被上一次的收起动画清掉」（表现为立绘没显示、但对话框还留着让位）。
+     */
+    private long standeeToken = 0;
+
     private StackPane standeePane;
     private ImageView standeeImageView;
 
@@ -482,9 +489,18 @@ public class ChatManager {
         view.setTranslateY(standeeStyle.offsetY());
     }
 
-    /** 立绘在画布上占到的右边界（供对话框让位；被挪到画布外时算 0）。 */
+    /**
+     * 立绘在画布上占到的右边界（供对话框让位）。
+     *
+     * <p>判定依据是「立绘<b>现在真的在画面上</b>」而不是「图片已经加载过」：
+     * 只要立绘层不可见（或被滑出动画挪到了画面外），就不该让对话框留出一块空白。
+     * 踩过的坑：图片还挂在字段上、但立绘已经不在屏幕上，对话框却一直缩在右边。
+     */
     private double standeeRightEdge() {
         if (standeeImageView == null || standeeImageView.getImage() == null) {
+            return 0;
+        }
+        if (!standeePane.isVisible()) {
             return 0;
         }
         Image img = standeeImageView.getImage();
@@ -512,6 +528,7 @@ public class ChatManager {
                         + standeeLoadHint(path, resolved));
                 return;
             }
+            long token = ++standeeToken;
             double paneH = standeePaneHeight();
             standeeImageView = view;
             standeeImageView.setPreserveRatio(true);
@@ -528,6 +545,7 @@ public class ChatManager {
             slide.setInterpolator(Interpolator.EASE_OUT);
             slide.play();
             currentStandeePath = path;
+            Logger("DEBUG", "立绘滑入: " + path + "（第 " + token + " 次立绘操作）");
         } catch (Exception e) {
             Logger("ERROR", "Failed to load standee: " + path + " - " + e.getMessage());
         }
@@ -537,12 +555,14 @@ public class ChatManager {
         if (!standeePane.isVisible()) {
             // 已经不可见了：这里也得把图片清掉，否则 standeeRightEdge() 还会以为立绘在，
             // 后续对话框会一直按「有立绘」让位（表现为对话框一直缩着、右边空一大块）。
+            standeeToken++;   // 作废在飞的动画，别让它回来清算新立绘
             standeePane.getChildren().clear();
             standeeImageView = null;
             currentStandeePath = null;
             currentStandeeWidth = 0;
             return;
         }
+        long token = ++standeeToken;
         double imgW = 400;
         if (standeeImageView != null && standeeImageView.getImage() != null) {
             Image img = standeeImageView.getImage();
@@ -556,6 +576,11 @@ public class ChatManager {
         slide.setToX(-imgW);
         slide.setInterpolator(Interpolator.EASE_IN);
         slide.setOnFinished(e -> {
+            if (token != standeeToken) {
+                // 动画跑完之前内容已经设了下一张立绘：这次收尾作废（否则会把新立绘清掉）
+                Logger("DEBUG", "立绘收起动画的收尾已作废（期间换了立绘）");
+                return;
+            }
             standeePane.setVisible(false);
             standeePane.setTranslateX(0);
             standeePane.getChildren().clear();
@@ -575,6 +600,7 @@ public class ChatManager {
                         + standeeLoadHint(newPath, resolved));
                 return;
             }
+            long token = ++standeeToken;
             double paneH = standeePaneHeight();
             newView.setPreserveRatio(true);
             applyStandeeStyle(newView, paneH);
@@ -587,10 +613,17 @@ public class ChatManager {
             standeePane.getChildren().add(newView);
             FadeTransition fadeOut = new FadeTransition(Duration.millis(250), oldView);
             fadeOut.setToValue(0);
-            fadeOut.setOnFinished(f -> standeePane.getChildren().remove(oldView));
+            fadeOut.setOnFinished(f -> {
+                if (token == standeeToken) {
+                    standeePane.getChildren().remove(oldView);
+                }
+            });
             FadeTransition fadeIn = new FadeTransition(Duration.millis(250), newView);
             fadeIn.setToValue(1);
             fadeIn.setOnFinished(f -> {
+                if (token != standeeToken) {
+                    return;   // 期间又换了立绘：这次收尾作废
+                }
                 standeeImageView = newView;
                 standeePane.setOpacity(1);
             });
@@ -1071,6 +1104,11 @@ public class ChatManager {
         return chatContainer;
     }
 
+    /** 仅测试用：立绘层（布局回归测试要能注入「图片在、但立绘不在画面上」这种状态）。 */
+    StackPane standeePaneForTest() {
+        return standeePane;
+    }
+
     public StackPane getStoryImagePane() {
         return storyImagePane;
     }
@@ -1247,6 +1285,7 @@ public class ChatManager {
 
         stopCurrentVoice();
         releasePendingFutures();
+        standeeToken++;   // 作废在飞的立绘动画，防止它回头清算新立绘
         standeePane.setVisible(false);
         standeePane.getChildren().clear();
         standeeImageView = null;

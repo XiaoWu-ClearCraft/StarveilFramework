@@ -57,6 +57,7 @@ class ChatDialogStandeeLayoutTest {
         // 1) 立绘出现（对话框在下一个 FX 轮才建好，所以分两步）
         onFxAndWait(() -> {
             mountInScene(chat);
+            chat.forceCloseAll();   // 清掉上一个用例留下的立绘/面板状态
             chat.setStandee("starveil:testchat/fixture-standee.png");
             chat.showDialog("甲", "有立绘的一句", null, "starveil:testchat/fixture-standee.png");
             return null;
@@ -112,6 +113,78 @@ class ChatDialogStandeeLayoutTest {
             chat.setStandee("");
             return null;
         });
+    }
+
+    /**
+     * 你报的那个：立绘<b>没在画面上</b>，对话框却还按「有立绘」缩着、左边留一大块空白。
+     *
+     * <p>让位必须看「立绘现在是否真的显示」，而不是「图片是否加载过」——
+     * 任何把立绘层藏起来、却没清掉图片的路径，都不该继续占着对话框的地方。
+     */
+    @Test
+    void anInvisibleStandeeReservesNothing() throws Exception {
+        Assumptions.assumeTrue(toolkitReady, "测试环境起不了 JavaFX 工具包，跳过布局测试");
+        ChatManager chat = ChatManager.getInstance();
+
+        // 立绘确实在画面上：先确认它占着地方（前置条件，避免测试假通过）
+        onFxAndWait(() -> {
+            mountInScene(chat);
+            chat.forceCloseAll();   // 清掉上一个用例留下的立绘/面板状态
+            chat.setStandee("starveil:testchat/fixture-standee.png");
+            chat.showDialog("甲", "立绘在画面上", null, "starveil:testchat/fixture-standee.png");
+            return null;
+        });
+        waitForStandeeSettled(chat);
+        double shown = onFxAndWait(() -> {
+            chat.showDialog("甲", "再看一眼", null, null);
+            return null;
+        }) == null ? onFxAndWait(() -> {
+            forceLayout(chat);
+            return leftMarginOfLatestDialog(chat);
+        }) : 0;
+        assertTrue(shown > GAP + 1, "前置条件：立绘在画面上时应当让位，实际: " + shown
+                + " [立绘层: " + standeeState(chat) + "]");
+
+        // 立绘层被藏起来（图片还挂在上面）→ 不该再让位
+        onFxAndWait(() -> {
+            StackPane standeePane = chat.standeePaneForTest();
+            assertNotNull(standeePane, "应当能找到立绘层");
+            standeePane.setVisible(false);
+            chat.showDialog("甲", "立绘没在画面上", null, null);
+            return null;
+        });
+        double margin = onFxAndWait(() -> {
+            forceLayout(chat);
+            return leftMarginOfLatestDialog(chat);
+        });
+        assertEquals(GAP, margin, 0.5,
+                "立绘不在画面上时不该让位（否则对话框会缩在右边、左边留一大块空白），实际: " + margin);
+
+        onFxAndWait(() -> {
+            chat.setStandee("");
+            return null;
+        });
+    }
+
+    /** 立绘层当前状态，断言失败时用来看清到底缺了什么。 */
+    private static String standeeState(ChatManager chat) throws Exception {
+        return onFxAndWait(() -> {
+            StackPane pane = chat.standeePaneForTest();
+            return "visible=" + pane.isVisible()
+                    + " 子节点=" + pane.getChildren().size()
+                    + " translateX=" + Math.round(pane.getTranslateX());
+        });
+    }
+
+    /** 等立绘层滑到位（translateX 回到 0），避免拿动画中间态做断言。 */
+    private static void waitForStandeeSettled(ChatManager chat) throws Exception {
+        for (int i = 0; i < 60; i++) {
+            Double x = onFxAndWait(() -> chat.standeePaneForTest().getTranslateX());
+            if (x != null && Math.abs(x) < 0.5) {
+                return;
+            }
+            Thread.sleep(50);
+        }
     }
 
     private static void mountInScene(ChatManager chat) {

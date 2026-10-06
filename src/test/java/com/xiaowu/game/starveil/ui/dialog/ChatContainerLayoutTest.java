@@ -54,7 +54,9 @@ class ChatContainerLayoutTest {
         Platform.runLater(() -> {
             try {
                 StackPane chat = ChatManager.getInstance().getChatContainer();
-                Scene scene = new Scene(chat, 1920, 1080);
+                if (chat.getScene() == null) {
+                    new Scene(chat, 1920, 1080);   // 已挂过就别再挂（同一个单例，跨用例会冲突）
+                }
                 chat.applyCss();
                 chat.layout();
 
@@ -70,7 +72,6 @@ class ChatContainerLayoutTest {
                 } finally {
                     chat.getChildren().remove(huge);
                 }
-                scene.setRoot(new StackPane());   // 让 chat 脱离场景，避免影响别的用例
             } catch (Throwable t) {
                 failure.set(t);
             } finally {
