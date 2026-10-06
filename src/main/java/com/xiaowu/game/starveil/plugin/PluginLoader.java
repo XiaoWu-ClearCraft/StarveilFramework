@@ -386,6 +386,11 @@ public class PluginLoader {
             StarveilPlugin plugin = (StarveilPlugin) mainClass.getDeclaredConstructor().newInstance();
             PluginContext context = new DefaultPluginContext(manifest, plugin, pluginsDir);
 
+            // 插件自带资源直接用插件 id 当命名空间：assets/<插件id>/… 写成 <插件id>:…
+            // （和「数据键」的命名空间一个思路：谁的资源谁负责，不会和游戏内容撞路径）
+            com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver
+                    .registerNamespace(manifest.id);
+
             plugin.onLoad(context);
             loadedPlugins.add(new LoadedPlugin(manifest, plugin, null));
             Logger("INFO", "插件已加载: " + manifest.name + " v" + manifest.version + " (ID: " + manifest.id + ")");

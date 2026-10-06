@@ -45,6 +45,51 @@ public class StarveilResources {
         return StarveilResourceResolver.resolveAs(type, path);
     }
 
+    // ==================== 命名空间（谁的资源） ====================
+
+    /**
+     * 注册一个资源命名空间，根目录取默认的 {@code /assets/<名字>}。
+     *
+     * <pre>{@code
+     * Starveil.resources().registerNamespace("myplugin");
+     * Starveil.resources().getURL("myplugin:textures/icon.png");
+     * //                          → /assets/myplugin/textures/icon.png
+     * }</pre>
+     *
+     * <p>插件加载时框架已按插件 id 自动注册，插件里一般不用自己调；
+     * 资源不在 {@code assets/<插件id>/} 下时才需要指定根目录。
+     *
+     * @return 是否注册成功（名字非法、或想占用引擎保留的 {@code starveil} 时返回 false）
+     */
+    public boolean registerNamespace(String name) {
+        return StarveilResourceResolver.registerNamespace(name);
+    }
+
+    /**
+     * 注册命名空间并指定根目录。
+     *
+     * @param name 命名空间名（小写字母开头，可含数字、下划线、连字符）
+     * @param root 根目录，如 {@code /assets/myplugin/assets}；null / 空表示 {@code /assets/<名字>}
+     */
+    public boolean registerNamespace(String name, String root) {
+        return StarveilResourceResolver.registerNamespace(name, root);
+    }
+
+    /** 注销命名空间（引擎保留的 {@code starveil} 不给注销）。 */
+    public boolean unregisterNamespace(String name) {
+        return StarveilResourceResolver.unregisterNamespace(name);
+    }
+
+    /** 已注册的命名空间名（含引擎的 {@code starveil}）。 */
+    public java.util.Set<String> namespaces() {
+        return StarveilResourceResolver.namespaces();
+    }
+
+    /** 命名空间对应的根目录；未注册返回 null。 */
+    public String namespaceRoot(String name) {
+        return StarveilResourceResolver.namespaceRoot(name);
+    }
+
     /** 贴图路径解析（{@code character/normal/relaxed.png}）。 */
     public String resolveTexture(String path) {
         return StarveilResourceResolver.resolveTexture(path);

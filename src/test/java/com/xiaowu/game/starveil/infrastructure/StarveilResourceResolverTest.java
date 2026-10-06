@@ -1,5 +1,6 @@
 package com.xiaowu.game.starveil.infrastructure;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -34,10 +35,15 @@ class StarveilResourceResolverTest {
 
     @Test
     void aSubdirectoryIsNotAType() {
-        // 最常见的写法错误：想引用 assets/starveil/textures/character/… 却写成 starveil:character/…
-        // 现在不会硬失败，而是按相对路径兜一次（框架测试里没有真实资源，所以这里兜不到）
-        assertNull(StarveilResourceResolver.resolve("starveil:character/normal/relaxed.png"),
-                "「character」不是资源类型，兜底也找不到时就返回 null（日志里会说明正确写法）");
+        // 常见的写法错误：想引用 assets/starveil/textures/character/… 却写成 starveil:character/…
+        // 第二段不是类型时按「命名空间根下的普通路径」处理：这里算出来的是
+        // /assets/starveil/character/… （不存在，日志里有提示与正确写法）
+        assertEquals("/assets/starveil/character/normal/relaxed.png",
+                StarveilResourceResolver.resolve("starveil:character/normal/relaxed.png"));
+        assertFalse(StarveilResourceResolver.exists("starveil:character/normal/relaxed.png"));
+        // 正确写法（类型 + 相对路径）解析到真正的文件位置
+        assertEquals("/assets/starveil/textures/character/normal/relaxed.png",
+                StarveilResourceResolver.resolve("starveil:textures/character/normal/relaxed.png"));
     }
 
     @Test
@@ -56,8 +62,8 @@ class StarveilResourceResolverTest {
                 StarveilResourceResolver.resolve("starveil:textures"));
         assertEquals("/assets/starveil/sounds/sounds.mp3",
                 StarveilResourceResolver.resolve("starveil:sounds"));
-        // data / lang 没有默认文件名
-        assertNull(StarveilResourceResolver.resolve("starveil:data"));
+        // data / lang 没有默认文件名：给出类型目录本身（不是文件，加载方会失败，但路径是讲得通的）
+        assertEquals("/assets/starveil/data", StarveilResourceResolver.resolve("starveil:data"));
     }
 
     @Test
@@ -143,5 +149,62 @@ class StarveilResourceResolverTest {
         // 所以新增推断不会改变「路径不存在」时的老行为
         assertNull(StarveilResourceResolver.resolveRelative("there/is/no/such/file.png"));
         assertFalse(StarveilResourceResolver.exists("there/is/no/such/file.png"));
+    }
+
+    // ==================== 命名空间（谁的资源） ====================
+
+    @AfterEach
+    void forgetTestNamespaces() {
+        StarveilResourceResolver.unregisterNamespace("myplugin");
+        StarveilResourceResolver.unregisterNamespace("plug");
+    }
+
+    @Test
+    void theEngineNamespaceIsRegisteredOutOfTheBox() {
+        assertEquals("/assets/starveil", StarveilResourceResolver.namespaceRoot("starveil"));
+        assertTrue(StarveilResourceResolver.namespaces().contains("starveil"));
+        assertEquals("starveil", StarveilResourceResolver.namespaceOf("starveil:textures/a.png"));
+    }
+
+    @Test
+    void aPluginNamespaceMapsToItsOwnAssetsRoot() {
+        assertTrue(StarveilResourceResolver.registerNamespace("myplugin"));
+        assertEquals("/assets/myplugin", StarveilResourceResolver.namespaceRoot("myplugin"));
+        assertEquals("/assets/myplugin/textures/icon.png",
+                StarveilResourceResolver.resolve("myplugin:textures/icon.png"));
+        assertEquals("/assets/myplugin/sounds/click.mp3",
+                StarveilResourceResolver.resolve("myplugin:sounds/click.mp3"));
+        // 不是已知类型时按命名空间根下的普通路径走（插件可以有自己的目录结构）
+        assertEquals("/assets/myplugin/config/tables.json",
+                StarveilResourceResolver.resolve("myplugin:config/tables.json"));
+    }
+
+    @Test
+    void aNamespaceCanPointAtACustomRoot() {
+        assertTrue(StarveilResourceResolver.registerNamespace("plug", "/assets/shared/assets"));
+        assertEquals("/assets/shared/assets", StarveilResourceResolver.namespaceRoot("plug"));
+        assertEquals("/assets/shared/assets/textures/icon.png",
+                StarveilResourceResolver.resolve("plug:textures/icon.png"));
+    }
+
+    @Test
+    void theEngineNamespaceIsReservedAndNamesAreValidated() {
+        assertFalse(StarveilResourceResolver.registerNamespace("starveil"),
+                "starveil 是引擎保留的（与数据键的命名空间规则一致）");
+        assertFalse(StarveilResourceResolver.unregisterNamespace("starveil"));
+        assertFalse(StarveilResourceResolver.registerNamespace("Bad-Name"), "大写不允许");
+        assertFalse(StarveilResourceResolver.registerNamespace("1abc"), "数字开头不允许");
+        assertFalse(StarveilResourceResolver.registerNamespace(null));
+    }
+
+    @Test
+    void anUnregisteredNamespaceIsAclearError() {
+        assertNull(StarveilResourceResolver.resolve("nope:textures/a.png"),
+                "未注册的命名空间不该悄悄当普通路径处理");
+        // URL / 盘符不该被当成命名空间
+        assertFalse(StarveilResourceResolver.isNamespaceReference("https://example.com/a.png"));
+        assertFalse(StarveilResourceResolver.isNamespaceReference("C:/tmp/a.png"));
+        assertFalse(StarveilResourceResolver.isNamespaceReference("/assets/starveil/textures/a.png"));
+        assertFalse(StarveilResourceResolver.isNamespaceReference("starveil:"));
     }
 }

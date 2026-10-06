@@ -80,18 +80,123 @@ public class StarveilResourceResolver {
     private StarveilResourceResolver() {
     }
 
+    // ==================== 命名空间（资源根） ====================
+
     /**
-     * 判断传入引用是否是 Starveil 命名空间写法（形如 starveil:xxx/yyy）。
+     * 命名空间 → 资源根目录。
+     *
+     * <p>{@code starveil:} 是<b>引擎与游戏内容</b>的命名空间，映射到 {@code /assets/starveil}；
+     * 插件可以用自己的命名空间（{@code xxx:} → {@code /assets/xxx}），
+     * 于是「谁带的资源」一目了然，也不会和游戏内容撞路径。
+     *
+     * <p>和「数据键」的命名空间规则一致：{@code starveil} 是<b>引擎保留</b>的，
+     * 插件请注册自己的名字。
+     */
+    private static final Map<String, String> NAMESPACE_ROOTS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    static {
+        NAMESPACE_ROOTS.put(NAMESPACE, ASSETS_ROOT + "/" + NAMESPACE);
+    }
+
+    /** 命名空间名的合法写法（小写字母开头，可含数字、下划线、连字符）。 */
+    private static final java.util.regex.Pattern NAMESPACE_NAME =
+            java.util.regex.Pattern.compile("[a-z][a-z0-9_-]*");
+
+    /**
+     * 注册一个资源命名空间，根目录取默认的 {@code /assets/<名字>}。
+     *
+     * <pre>{@code
+     * StarveilResourceResolver.registerNamespace("myplugin");
+     * // 之后 "myplugin:textures/icon.png" → /assets/myplugin/textures/icon.png
+     * }</pre>
+     *
+     * @return 是否注册成功（名字非法、或想占用 {@code starveil} 时返回 false）
+     */
+    public static boolean registerNamespace(String name) {
+        return registerNamespace(name, null);
+    }
+
+    /**
+     * 注册一个资源命名空间并指定根目录（比如插件把资源放在自己的子目录下）。
+     *
+     * @param name 命名空间名，见 {@link #NAMESPACE_NAME}；{@code starveil} 为引擎保留
+     * @param root 根目录；传 null / 空表示默认的 {@code /assets/<名字>}
+     */
+    public static boolean registerNamespace(String name, String root) {
+        if (name == null || !NAMESPACE_NAME.matcher(name).matches()) {
+            LoggerManager.Logger("WARNING", "命名空间名不合法（要小写字母开头、只含字母数字下划线连字符）: " + name);
+            return false;
+        }
+        if (NAMESPACE.equals(name)) {
+            LoggerManager.Logger("WARNING", "命名空间 '" + NAMESPACE + "' 是引擎保留的，"
+                    + "插件请注册自己的名字（例如插件 id）");
+            return false;
+        }
+        String realRoot = (root == null || root.trim().isEmpty())
+                ? ASSETS_ROOT + "/" + name
+                : normalizeRoot(root.trim());
+        NAMESPACE_ROOTS.put(name, realRoot);
+        LoggerManager.Logger("INFO", "已注册资源命名空间: " + name + ": → " + realRoot);
+        return true;
+    }
+
+    /** 注销命名空间（引擎保留的那个不给注销）。 */
+    public static boolean unregisterNamespace(String name) {
+        if (name == null || NAMESPACE.equals(name)) {
+            return false;
+        }
+        return NAMESPACE_ROOTS.remove(name) != null;
+    }
+
+    /** 已注册的命名空间名（含引擎的 {@code starveil}）。 */
+    public static java.util.Set<String> namespaces() {
+        return java.util.Set.copyOf(NAMESPACE_ROOTS.keySet());
+    }
+
+    /** 命名空间对应的根目录；未注册返回 null。 */
+    public static String namespaceRoot(String name) {
+        return name == null ? null : NAMESPACE_ROOTS.get(name);
+    }
+
+    private static String normalizeRoot(String root) {
+        String r = root.startsWith("/") ? root : "/" + root;
+        return r.endsWith("/") ? r.substring(0, r.length() - 1) : r;
+    }
+
+    /**
+     * 判断传入引用是否是命名空间写法（形如 {@code xxx:yyy/zzz}）。
+     *
+     * <p>只看形状不看是否已注册 —— 未注册的命名空间会在解析时报错并提示，
+     * 免得悄悄退回「当普通路径处理」而看不出问题。{@code http://…} 这类带斜杠的
+     * 前缀不算命名空间。
      */
     public static boolean isNamespaceReference(String path) {
-        return path != null && path.startsWith(NAMESPACE + ":");
+        if (path == null) {
+            return false;
+        }
+        int colon = path.indexOf(':');
+        if (colon <= 0 || colon == path.length() - 1) {
+            return false;
+        }
+        if (path.charAt(colon + 1) == '/') {
+            return false;   // http:// 之类
+        }
+        return NAMESPACE_NAME.matcher(path.substring(0, colon)).matches();
+    }
+
+    /** 取出命名空间名；不是命名空间写法时返回 null。 */
+    public static String namespaceOf(String path) {
+        if (!isNamespaceReference(path)) {
+            return null;
+        }
+        return path.substring(0, path.indexOf(':'));
     }
 
     /**
      * 将任意资源引用解析为 classpath 绝对路径（以 / 开头）。
      *
-     * <p>命名空间引用会映射到 {@code /assets/starveil/...}，旧式 {@code /assets/...}
-     * 路径原样归一化返回。无法解析时返回 null。
+     * <p>命名空间引用会映射到该命名空间的根目录（{@code starveil:} → {@code /assets/starveil}，
+     * 插件命名空间同理），旧式 {@code /assets/...} 路径原样归一化返回。无法解析时返回 null。
      */
     public static String resolve(String path) {
         if (path == null || path.isEmpty()) {
@@ -100,36 +205,37 @@ public class StarveilResourceResolver {
         if (!isNamespaceReference(path)) {
             return normalizeLegacy(path);
         }
-        String rest = path.substring(NAMESPACE.length() + 1);
-        if (rest.isEmpty()) {
-            return ASSETS_ROOT + "/" + NAMESPACE;
+        int colon = path.indexOf(':');
+        String namespace = path.substring(0, colon);
+        String root = NAMESPACE_ROOTS.get(namespace);
+        if (root == null) {
+            LoggerManager.Logger("WARNING", "资源命名空间未注册: " + namespace + "（" + path + "）"
+                    + " —— 已注册的有 " + namespaces()
+                    + "；插件应当在加载时 registerNamespace(\"自己的名字\")");
+            return null;
         }
-
+        String rest = path.substring(colon + 1);
+        if (rest.isEmpty()) {
+            return root;
+        }
+        // 第二段是类型（textures/sounds/…）时走类型规则；不是就当命名空间根下的普通路径
         int slash = rest.indexOf('/');
         String type = slash < 0 ? rest : rest.substring(0, slash);
         String filePath = slash < 0 ? "" : rest.substring(slash + 1);
-
         String realType = normalizeType(type);
         if (realType == null) {
-            // 第一段不是类型名 —— 多半是把 assets/starveil 下的子目录当成了类型
-            // （starveil:character/… 而正确写法是 character/…）。
-            // 这里不直接失败：把它当成相对路径再找一遍，并提示正确写法。
-            String fallback = resolveRelative(rest);
-            warnUnknownType(path, type, rest, fallback);
-            return fallback;
+            return resolveInsideRoot(root, namespace, rest, type);
         }
-
         if (filePath.isEmpty()) {
             String defaultFile = DEFAULT_FILES.get(realType);
             if (defaultFile == null) {
-                return null;
+                return root + "/" + realType;
             }
             filePath = defaultFile;
         }
-
-        String base = ASSETS_ROOT + "/" + NAMESPACE + "/" + realType;
+        String base = root + "/" + realType;
         String primary = base + "/" + filePath;
-        if (exists(primary)) {
+        if (existsResolved(primary)) {
             return primary;
         }
         // 带子类目录时查找失败，忽略子类（第一个目录段）再尝试一次
@@ -137,11 +243,24 @@ public class StarveilResourceResolver {
         if (subSlash > 0) {
             String plainFile = filePath.substring(subSlash + 1);
             String fallback = base + "/" + plainFile;
-            if (exists(fallback)) {
+            if (existsResolved(fallback)) {
                 return fallback;
             }
         }
         return primary;
+    }
+
+    /**
+     * 命名空间里第二段不是已知类型时的处理：当作根目录下的普通路径
+     * （插件可以有自己的目录结构）；确实找不到时提醒正确写法。
+     */
+    private static String resolveInsideRoot(String root, String namespace, String rest, String type) {
+        String literal = root + "/" + rest;
+        if (existsResolved(literal)) {
+            return literal;
+        }
+        warnUnknownType(namespace, rest, type, literal);
+        return literal;
     }
 
     /**
@@ -395,21 +514,23 @@ public class StarveilResourceResolver {
     private static final java.util.Set<String> WARNED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
-     * 命名空间引用的第一段不是资源类型时的提示（并且已经按相对路径兜了一次）。
+     * 命名空间里第二段不是资源类型时的提示。
      *
      * <p>这是最常见的写法错误：把 {@code assets/starveil/} 下的<b>子目录</b>当成了类型，
      * 例如想引用 {@code assets/starveil/textures/character/normal/relaxed.png} 却写成
-     * {@code starveil:character/normal/relaxed.png}（多了 {@code starveil:}，少写了类型）。
-     * 正确写法其实就是 {@code character/normal/relaxed.png} —— 类型由框架推断。
+     * {@code starveil:character/normal/relaxed.png}（类型段写成了子目录）。
      */
-    private static void warnUnknownType(String path, String type, String relativeForm, String fallback) {
-        if (WARNED.size() > 64 || !WARNED.add(path)) {
+    private static void warnUnknownType(String namespace, String rest, String type, String tried) {
+        String key = namespace + ":" + rest;
+        if (WARNED.size() > 64 || !WARNED.add(key)) {
             return;
         }
-        LoggerManager.Logger("WARNING", "资源路径的第一段「" + type + "」不是资源类型（" + path + "）。"
-                + "正确写法是直接写相对路径 " + relativeForm + "（类型 "
+        LoggerManager.Logger("WARNING", "资源路径的第二段「" + type + "」不是资源类型（"
+                + namespace + ":" + rest + "）。类型是 "
                 + TYPE_TEXTURES + " / " + TYPE_SOUNDS + " / " + TYPE_FONTS + " / "
-                + TYPE_DATA + " / " + TYPE_LANG + " 由框架按用途推断）"
-                + (fallback != null ? "；这次已按相对路径找到 " + fallback : "；这次按相对路径也没找到"));
+                + TYPE_DATA + " / " + TYPE_LANG + "；"
+                + "如果这是贴图，正确写法是 " + namespace + ":" + TYPE_TEXTURES + "/" + rest
+                + "，或者干脆写相对路径 " + rest + "（类型由框架推断）。"
+                + "（自定义目录结构也允许，但得真的存在：" + tried + " 没找到）");
     }
 }

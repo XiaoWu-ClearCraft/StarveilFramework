@@ -42,7 +42,8 @@
 | 角色贴图配置 | `assets/starveil/data/entities/player.json` | 动画键写法见下 |
 
 资源路径**直接写相对路径就行**：类型（贴图 / 音频 / 字体 / 数据 / 文案）与文件后缀
-都由框架推断，内容不必记 `textures` 这类类型名：
+都由框架推断，内容不必记 `textures` 这类类型名（相对路径属于 `starveil` 命名空间，
+见下面「命名空间」）：
 
 ```java
 // assets/starveil/textures/character/normal/relaxed.png
@@ -63,8 +64,28 @@ s.image("starveil:textures/backgrounds/void-fog.png");            // 命名空�
 s.image("/assets/starveil/textures/backgrounds/void-fog.png");    // 旧式 classpath 路径
 ```
 
-> `starveil:<类型>/<路径>` 里的第一段是<b>类型</b>（不是子目录）：写成
-> `starveil:character/...` 会解析失败，日志里会说明原因。
+#### 命名空间：谁的资源
+
+`starveil:` 是**引擎与游戏内容**的命名空间，映射到 `assets/starveil/` —— 它是刻意留着的：
+换个名字就换一个资源根，插件因此可以带自己的资源而不和游戏内容撞路径。
+
+```java
+// 插件加载时框架已按插件 id 自动注册：assets/<插件id>/…
+Starveil.resources().registerNamespace("myplugin");        // → /assets/myplugin
+Starveil.resources().registerNamespace("plug", "/assets/shared/assets");   // 自定义根目录
+
+Starveil.resources().getURL("myplugin:textures/icon.png"); // → /assets/myplugin/textures/icon.png
+Starveil.resources().namespaces();                        // 已注册的命名空间
+```
+
+规则与「数据键」的命名空间一致：`starveil` 是**引擎保留**的（不给注册 / 注销），
+插件用自己的名字（建议就用插件 id）。命名空间里的第二段仍是资源类型
+（`textures` / `sounds` / `fonts` / `data` / `lang`）；不是类型时按「命名空间根下的普通路径」
+处理，所以插件也可以有自己的目录结构。未注册的命名空间会直接报错并在日志里列出已注册的名字。
+
+> `starveil:<类型>/<路径>` 里的第二段是<b>类型</b>（不是子目录）：写成
+> `starveil:character/...` 会解析到 `assets/starveil/character/...`（不存在），
+> 日志里会给出正确写法。
 
 ---
 
