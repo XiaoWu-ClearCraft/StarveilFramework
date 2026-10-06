@@ -157,16 +157,12 @@ public final class ContentConfig {
     /** 断网时是否强制弹窗提示（默认关闭）。 */
     private static volatile boolean offlinePromptEnabled = false;
 
-    /** 跳过断网提示的特殊键（KeyCode 名，默认 F8）。 */
-    private static volatile String offlineBypassKey = "F8";
-
     /**
      * 开启「断网时强制提示」。
      *
-     * <p>默认<b>关闭</b>：框架不替内容决定「没网能不能玩」。开启后，一旦探测到断网就会
-     * 弹一个盖住整个画面的提示，联网后自动消失；不提供「知道了」按钮（见
-     * {@code OfflinePrompt} 的说明）。留了一个特殊键作为逃生口 ——
-     * 网络判断会有假阴性，不能把玩家永久关在门外。
+     * <p>默认<b>关闭</b>：框架不替内容决定「没网能不能玩」。开启后，一旦判定断网就会
+     * 弹一个盖住整个画面的提示，联网后自动消失；不提供「知道了」按钮、也没有跳过键
+     * （见 {@code OfflinePrompt} 的说明）。运行期想自己收回，再调一次传 {@code false} 即可。
      */
     public static void setOfflinePromptEnabled(boolean enabled) {
         offlinePromptEnabled = enabled;
@@ -175,23 +171,6 @@ public final class ContentConfig {
 
     public static boolean offlinePromptEnabled() {
         return offlinePromptEnabled;
-    }
-
-    /**
-     * 设置跳过断网提示的特殊键（{@code KeyCode} 的名字，如 {@code "F8"}）。
-     * 按一次即本次会话不再提示；恢复联网后再断开仍会提示。
-     */
-    public static void setOfflineBypassKey(String keyCodeName) {
-        if (keyCodeName == null || keyCodeName.trim().isEmpty()) {
-            offlineBypassKey = "F8";
-            return;
-        }
-        offlineBypassKey = keyCodeName.trim().toUpperCase();
-        Logger("INFO", "断网提示的跳过键: " + offlineBypassKey);
-    }
-
-    public static String offlineBypassKey() {
-        return offlineBypassKey;
     }
 
     /**
@@ -445,7 +424,6 @@ public final class ContentConfig {
         gameName = null;
         windowTitle = null;
         offlinePromptEnabled = false;
-        offlineBypassKey = "F8";
         primaryColor = DEFAULT_PRIMARY_COLOR;
         secondaryColor = DEFAULT_SECONDARY_COLOR;
         tertiaryColor = DEFAULT_TERTIARY_COLOR;

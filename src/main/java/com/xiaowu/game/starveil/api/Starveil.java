@@ -14,6 +14,8 @@ import com.xiaowu.game.starveil.input.InputHandler;
  *   <li>{@link StarveilResources} — 标准资源加载（命名空间 starveil:xxx）</li>
  *   <li>{@link StarveilGame} — 游戏实例、世界地图、输入、UI 消息与提示</li>
  *   <li>{@link StarveilMagic} — 法阵（魔力）系统开关与会话魔力值</li>
+ *   <li>{@link StarveilTime} — 本机时间与可信时间</li>
+ *   <li>{@link StarveilNetwork} — 现在有没有网、什么时候变的</li>
  * </ul>
  */
 public final class Starveil {
@@ -84,5 +86,19 @@ public final class Starveil {
      */
     public static StarveilMagic magic() {
         return StarveilMagic.getInstance();
+    }
+
+    /**
+     * 时间门面（可信时间 / 本机时间）。
+     */
+    public static StarveilTime time() {
+        return StarveilTime.getInstance();
+    }
+
+    /**
+     * 网络状况门面（是否联网、状态变化回调）。
+     */
+    public static StarveilNetwork network() {
+        return StarveilNetwork.getInstance();
     }
 }

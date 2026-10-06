@@ -66,26 +66,38 @@ NetworkStatus.setIntervalSeconds(NetworkStatus.AUTO_INTERVAL);   // 默认值：
 
 > **它是「Windows 的判定」，不是绝对真理**：NCSI 自己也有探测周期，刚断的瞬间可能还显示有网
 > （任务栏图标同理）；反过来，公司代理 / 强制门户环境下 NCSI 可能判「无 Internet」，
-> 而玩家的游戏其实连得上。所以框架把它当**首选信号**而不是唯一信号，
-> 并且给断网提示留了特殊键（见下一节）。
+> 而玩家的游戏其实连得上。所以框架把它当**首选信号**而不是唯一信号。
 
 > **首次探测出结果前 `isOnline()` 返回 `true`。** 宁可先当「有网」，
 > 也不要在还没测出来的那几百毫秒里给玩家弹一个「你没网」。
+
+### 给内容用的门面
+
+内容与插件走 `com.xiaowu.game.starveil.api` 这一层，不必碰内部实现类：
+
+```java
+import com.xiaowu.game.starveil.api.Starveil;
+
+Starveil.network().isOnline();        // 现在能不能上互联网（首次结果前为 true）
+Starveil.network().state();           // UNKNOWN / ONLINE / OFFLINE
+Starveil.network().isKnown();         // 已经测出过结果没有（区分「在线」和「还没测」）
+Starveil.network().checkNow();        // 立刻重测（异步，平时不用手动调）
+Starveil.network().source();          // 当前判定来源的可读描述，排查假阴性时写日志用
+Starveil.network().addListener(state -> { /* 在探测线程上，碰 UI 请 runLater */ });
+Starveil.network().removeListener(listener);   // 传注册时的同一个实例
+```
 
 ## 2. 断网提示：`OfflinePrompt`
 
 ```java
 ContentConfig.setOfflinePromptEnabled(true);   // 默认关闭
-ContentConfig.setOfflineBypassKey("F8");       // 可选，默认就是 F8
 ```
 
-开启后：探测到断网 → 盖住整个画面的提示；**联网后自动消失**。
-没有「知道了」按钮 —— 这是给「不联网就没法正常玩」的游戏用的，
+开启后：判定断网 → 盖住整个画面的提示；**联网后自动消失**。
+没有「知道了」按钮、也没有跳过键 —— 这是给「不联网就没法正常玩」的游戏用的，
 让玩家点掉继续玩一个坏掉的游戏没有意义。
-
-**留了一个特殊键**（默认 `F8`）：按一次，本次会话不再提示（恢复联网后再断开仍会提示）。
-理由很实际：网络判断会有假阴性（公共 WiFi 的强制门户、公司代理、探测端点刚好被墙），
-一旦判断错了，玩家就被一个永不消失的弹窗关在门外 —— 那比断网本身严重得多。
+（内容若想自己掌握开关，比如调试菜单里临时放行，运行期再调一次
+`ContentConfig.setOfflinePromptEnabled(false)` 即可。）
 
 提示挂在**场景根**上（不是画布里的 modalHost），所以主菜单阶段也会提示。
 
@@ -115,14 +127,32 @@ ContentConfig.setOfflineBypassKey("F8");       // 可选，默认就是 F8
 
 ## 3. 可信时间：`TrustedTime`
 
+内容侧用门面取（内部类 `infrastructure.net.TrustedTime` 也可以用，但门面更稳）：
+
+```java
+import com.xiaowu.game.starveil.api.Starveil;
+
+Instant now = Starveil.time().trustedNow();          // 可信时间（该用这个）
+LocalDateTime local = Starveil.time().trustedNowLocal();
+ZonedDateTime zoned = Starveil.time().trustedNowZoned();
+long millis = Starveil.time().trustedEpochMillis();  // 存档 / 比大小的便捷写法
+
+Instant raw = Starveil.time().systemNow();           // 本机时钟：玩家能改，别做判定
+boolean trustworthy = Starveil.time().isSynced();    // 可信时间到底可不可信
+long offset = Starveil.time().offsetMillis();        // 可信时间 − 本机时间
+String from = Starveil.time().source();              // 取时用的地址，没同步过是 null
+Starveil.time().syncAsync();                         // 需要时重新同步（异步，平时不用调）
+```
+
+框架层（启动流程里已经在用）多一个「基准时间戳」的读法：
+
 ```java
 TrustedTime.loadFromConfig();          // 启动时恢复上次的基准（AppEntry 已经调了）
-TrustedTime.syncAsync();               // 联网同步一次（异步）
-Instant now = TrustedTime.now();       // 可信时间
-LocalDateTime local = TrustedTime.nowLocal();
-boolean synced = TrustedTime.isSynced();
-long base = TrustedTime.baseTrustedMillis();   // 基准时间戳
+TrustedTime.baseTrustedMillis();       // 基准时间戳本身
 ```
+
+> **没同步过时 `trustedNow()` 返回本机时钟** —— 游戏不该因为取不到时间就跑不动。
+> 要判断这个值值不值得信，只看 `isSynced()`（首次启动 + 没网时为 `false`）。
 
 ### 为什么是「基准时间戳 + 单调时钟」
 
@@ -196,7 +226,6 @@ ContentConfig.setIpLocationUrls("https://my-api.example.com/geo");
 ```java
 // 断网就挡住（不联网没法正常玩的游戏再打开）
 ContentConfig.setOfflinePromptEnabled(true);
-ContentConfig.setOfflineBypassKey("F8");
 
 // 探测端点 / 取时地址 / 属地接口（都可选，不设用框架默认）
 ContentConfig.setNetworkEndpoints("223.5.5.5:443", "1.1.1.1:443");
@@ -204,9 +233,16 @@ ContentConfig.setTrustedTimeUrls("https://www.baidu.com");
 ContentConfig.setIpLocationUrls("https://whois.pconline.com.cn/ipJson.jsp?json=true");
 ```
 
+运行期读取（内容/插件的日常用法）：
+
+```java
+boolean online = Starveil.network().isOnline();
+Instant now = Starveil.time().trustedNow();
+```
+
 ## 线程与退出
 
 - 探测、同步、属地查询都在**守护线程**上跑：不阻塞 JavaFX 线程，也不会拦住游戏退出。
-- `NetworkStatus.addListener` 的回调在探测线程上触发，碰 UI 要自己 `Platform.runLater`。
+- `Starveil.network().addListener` 的回调在探测线程上触发，碰 UI 要自己 `Platform.runLater`。
 - `NetworkStatus.stop()` 会注销系统回调；一般不需要调（进程退出时系统自己清理）。
 

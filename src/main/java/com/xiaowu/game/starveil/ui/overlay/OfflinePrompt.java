@@ -15,7 +15,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
-import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
@@ -30,7 +29,7 @@ import javafx.util.Duration;
 import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logger;
 
 /**
- * 断网提示：强制挡在画面上，直到联网（或用「特殊键」跳过）。
+ * 断网提示：强制挡在画面上，直到联网。
  *
  * <h2>为什么要强制</h2>
  * 这东西只在内容主动开启后才会出现（
@@ -38,12 +37,13 @@ import static com.xiaowu.game.starveil.infrastructure.logging.LoggerManager.Logg
  * 开启的场景通常是「这游戏不联网就没法正常玩」：那就没必要给一个「知道了」按钮
  * 让玩家点掉继续玩一个坏掉的游戏 —— 直接挡住，联网后自动消失。
  *
- * <h2>为什么还要留一个特殊键</h2>
- * 因为网络判断会有假阴性（公共 WiFi 的强制门户、公司代理、探测端点刚好被墙……），
- * 一旦判断错了，玩家就被一个永远不消失的弹窗关在门外 —— 那比断网本身严重得多。
- * 所以留一个不显眼的键作为逃生口：按下去这一次会话不再提示（联网后再断开仍会提示）。
- * 默认 {@code F8}，内容可用
- * {@link ContentConfig#setOfflineBypassKey(String)} 改。
+ * <h2>为什么没有「跳过」键</h2>
+ * 曾经留过一个不显眼的逃生口（默认 {@code F8}，担心网络判断假阴性时把玩家关在门外）。
+ * 现在关掉了：判定以 Windows 系统自己的结论为准（见
+ * {@code infrastructure.net.WindowsInternetState}），假阴性比自建探测少得多，
+ * 而逃生口本身会削弱「没网就别玩」这个前提。
+ * 内容若确实需要自己掌握开关（比如调试菜单里），运行期调
+ * {@code ContentConfig.setOfflinePromptEnabled(false)} 即可。
  *
  * <h2>挂在哪</h2>
  * 挂到<b>场景根</b>（{@code GameManager} 的 rootContainer）而不是画布里的
@@ -84,13 +84,9 @@ public final class OfflinePrompt {
     private StackPane overlay;
     private Scene boundScene;
     private Window boundWindow;
-    private Label hintLabel;
 
     /** 联网状态监听是否已经注册过（attach 会被调用多次）。 */
     private boolean listening;
-
-    /** 本次会话是否已经用特殊键跳过。 */
-    private boolean bypassed;
 
     private OfflinePrompt() {
     }
@@ -171,36 +167,26 @@ public final class OfflinePrompt {
 
     private void onNetworkStateChanged(NetworkStatus.State state) {
         Platform.runLater(() -> {
-            if (state == NetworkStatus.State.OFFLINE && !bypassed && enabled()) {
+            if (state == NetworkStatus.State.OFFLINE && enabled()) {
                 showOverlay();
             } else {
                 hideOverlay();
-                if (state == NetworkStatus.State.ONLINE) {
-                    // 恢复联网后重新武装：下一次断开还要提示
-                    bypassed = false;
-                }
             }
         });
     }
 
-    // ==================== 特殊键 / 输入拦截 ====================
+    // ==================== 输入拦截 ====================
 
     /**
-     * 窗口级按键拦截：显示期间吃掉一切按键，只放行「跳过键」。
+     * 窗口级按键拦截：显示期间吃掉一切按键。
      *
      * <p>窗口过滤器在场景过滤器之前执行，所以这里 consume 之后，
      * 框架的 {@code InputHandler}、菜单、对话框都收不到按键。
      */
     private void onGlobalKey(KeyEvent event) {
-        if (!showing()) {
-            return;
-        }
-        if (event.getEventType() == KeyEvent.KEY_PRESSED && event.getCode() == bypassKey()) {
-            bypass();
+        if (showing()) {
             event.consume();
-            return;
         }
-        event.consume();
     }
 
     /** 窗口级鼠标拦截：遮罩期间点哪里都不算。 */
@@ -215,29 +201,6 @@ public final class OfflinePrompt {
         if (showing()) {
             event.consume();
         }
-    }
-
-    /** 用跳过键解封：本次会话不再提示（联网后再断开仍会提示）。 */
-    private void bypass() {
-        if (bypassed) {
-            return;
-        }
-        bypassed = true;
-        Logger("INFO", "已用特殊键跳过断网提示（本次会话不再提示）");
-        hideOverlay();
-    }
-
-    /** 配置里的特殊键；解析不出来就退回 F8。 */
-    private KeyCode bypassKey() {
-        String name = ContentConfig.offlineBypassKey();
-        if (name != null) {
-            try {
-                return KeyCode.valueOf(name.trim().toUpperCase());
-            } catch (IllegalArgumentException e) {
-                Logger("WARNING", "断网提示的跳过键无法识别: " + name + "，使用 F8");
-            }
-        }
-        return KeyCode.F8;
     }
 
     // ==================== 显示 / 隐藏 ====================
@@ -262,7 +225,7 @@ public final class OfflinePrompt {
         fade.setFromValue(0);
         fade.setToValue(1);
         fade.play();
-        Logger("INFO", "断网提示已显示（按 " + bypassKey() + " 可跳过）");
+        Logger("INFO", "断网提示已显示（联网后自动消失）");
     }
 
     private void hideOverlay() {
@@ -348,11 +311,7 @@ public final class OfflinePrompt {
         detail.setAlignment(Pos.CENTER);
         detail.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
 
-        hintLabel = new Label("（实在连不上？按 " + bypassKey() + " 跳过本次提示）");
-        hintLabel.setTextFill(Color.rgb(150, 150, 150));
-        hintLabel.setFont(Font.font(12));
-
-        box.getChildren().addAll(title, detail, hintLabel);
+        box.getChildren().addAll(title, detail);
 
         Label state = new Label();
         state.setTextFill(Color.rgb(150, 150, 150));

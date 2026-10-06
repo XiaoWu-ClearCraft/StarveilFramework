@@ -82,7 +82,7 @@ public class  GameConstants {
      *
      * <p>改动插件 API、注入点语义或启动流程时需要递增此版本。
      */
-    public static final String FRAMEWORK_VERSION = "1.0.0";
+    public static final String FRAMEWORK_VERSION = "1.1.0";
 
     /**
      * 「禁止退出」标记。
