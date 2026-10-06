@@ -41,8 +41,20 @@
 | 字体 | `assets/starveil/fonts/**` | |
 | 角色贴图配置 | `assets/starveil/data/entities/player.json` | 动画键写法见下 |
 
-资源路径统一用命名空间写法：`starveil:<类型>/<路径>`，
-例如 `starveil:textures/icons/app-icon.png`。
+资源路径统一用命名空间写法：`starveil:<类型>/<路径>`，**第一段必须是资源类型**
+（`textures` / `sounds` / `fonts` / `data` / `lang`，对应 `assets/starveil/` 下的第一层目录），
+后面才是子目录与文件名，**并且要带文件后缀**：
+
+```java
+// assets/starveil/textures/character/normal/relaxed.png
+s.image("starveil:textures/character/normal/relaxed.png");
+//        └ 类型 ──┘└ 类型目录下面的路径，照抄 ────────────────┘
+```
+
+> 最容易踩的坑：把 `assets/starveil/` 下的**子目录**当成类型，
+> 写成 `starveil:character/normal/relaxed`（少了 `textures`，又没带 `.png`）——
+> 解析会直接失败，日志里会说明是「第一段不是资源类型」并给出建议写法。
+> 旧类型名 `images` / `audio` / `font` 仍然兼容。
 
 ---
 
@@ -571,15 +583,18 @@ public class Chapter2 implements StoryChapter {
 就把立绘往下推一点，让下半身落到画布外 —— 逻辑画布自带裁剪，多出来的部分不会画出来：
 
 ```java
+// 路径就是 assets/starveil/... 那串，第一段写资源类型、末尾带后缀
+String jiwu = "starveil:textures/character/normal/relaxed.png";
+
 // 全身立绘 → 只露上半身：往下推 320（逻辑像素）
-s.say("霁雾", "早上好~", null, "starveil:textures/standees/jiwu.png", 0, 320);
+s.say("霁雾", "早上好~", null, jiwu, 0, 320);
 
 // 嫌人物小，同时放大 40%（半身特写更常见）
-s.say("霁雾", "好久不见。", null, "starveil:textures/standees/jiwu.png", 0, 320, 1.4);
+s.say("霁雾", "好久不见。", null, jiwu, 0, 320, 1.4);
 
 // 只换立绘、不带对话也一样
-s.standee("starveil:textures/standees/jiwu.png", 0, 320);
-s.standee("starveil:textures/standees/jiwu.png", 0, 0, 1.0);   // 回到默认（全身）
+s.standee(jiwu, 0, 320);
+s.standee(jiwu, 0, 0, 1.0);   // 回到默认（全身）
 ```
 
 规则三条：

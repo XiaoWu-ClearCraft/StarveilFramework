@@ -412,6 +412,23 @@ public class ChatManager {
         timeline.play();
     }
 
+    /**
+     * 立绘加载失败时的可读诊断：写错路径是常见坑，别只丢一句「加载失败」。
+     *
+     * <p>路径形如 {@code starveil:textures/character/normal/relaxed.png}：
+     * 第一段是资源类型（textures / sounds / fonts / data / lang），末尾要带文件后缀。
+     */
+    private String standeeLoadHint(String path) {
+        String resolved = com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver.resolve(path);
+        if (resolved == null) {
+            return "（这个路径解析不出来：第一段应该是 textures / sounds / fonts / data / lang，"
+                    + "正确写法形如 starveil:textures/character/normal/relaxed.png）";
+        }
+        boolean exists = com.xiaowu.game.starveil.infrastructure.StarveilResourceResolver.exists(path);
+        return "（解析为 " + resolved + "：" + (exists ? "文件在，但读不出图片内容" : "找不到该文件")
+                + "；路径要带后缀，形如 starveil:textures/character/normal/relaxed.png）";
+    }
+
     private void updateStandee(String newPath) {
         if (newPath == null) return;
         if (newPath.isEmpty()) {
@@ -473,7 +490,7 @@ public class ChatManager {
         try {
             javafx.scene.image.ImageView view = com.xiaowu.game.starveil.render.TextureNodeFactory.loadSheetView(path, -1, -1);
             if (view == null || view.getImage() == null || view.getImage().isError()) {
-                Logger("ERROR", "Failed to load standee image: " + path);
+                Logger("ERROR", "Failed to load standee image: " + path + standeeLoadHint(path));
                 return;
             }
             double paneH = standeePaneHeight();
@@ -530,7 +547,7 @@ public class ChatManager {
         try {
             javafx.scene.image.ImageView newView = com.xiaowu.game.starveil.render.TextureNodeFactory.loadSheetView(newPath, -1, -1);
             if (newView == null || newView.getImage() == null || newView.getImage().isError()) {
-                Logger("ERROR", "Failed to load standee image: " + newPath);
+                Logger("ERROR", "Failed to load standee image: " + newPath + standeeLoadHint(newPath));
                 return;
             }
             double paneH = standeePaneHeight();

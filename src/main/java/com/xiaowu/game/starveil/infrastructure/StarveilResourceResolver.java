@@ -104,6 +104,7 @@ public class StarveilResourceResolver {
 
         String realType = normalizeType(type);
         if (realType == null) {
+            warnUnknownType(path, type);
             return null;
         }
 
@@ -219,5 +220,30 @@ public class StarveilResourceResolver {
             return path;
         }
         return path.startsWith("/") ? path : "/" + path;
+    }
+
+    /** 已经提醒过的错误引用（同一个写错的路径只吵一次，别刷屏）。 */
+    private static final java.util.Set<String> WARNED = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * 命名空间引用的第一段不是资源类型时的提示。
+     *
+     * <p>这是最常见的写法错误：把 {@code assets/starveil/} 下的<b>子目录</b>当成了类型，
+     * 例如想引用 {@code assets/starveil/textures/character/normal/relaxed.png} 却写成
+     * {@code starveil:character/normal/relaxed.png}（少了 {@code textures}）。
+     * 解析会直接失败，报错只显示「加载失败」，很容易找不着北 —— 所以这里把原因说清楚。
+     */
+    private static void warnUnknownType(String path, String type) {
+        if (WARNED.size() > 64 || !WARNED.add(path)) {
+            return;
+        }
+        String hint = path.startsWith(NAMESPACE + ":" + type + "/")
+                ? NAMESPACE + ":" + TYPE_TEXTURES + "/" + path.substring((NAMESPACE + ":" + type + "/").length())
+                : NAMESPACE + ":" + TYPE_TEXTURES + "/…";
+        LoggerManager.Logger("WARNING", "资源路径写错了: " + path
+                + " —— 「" + type + "」不是资源类型，第一段必须是 "
+                + TYPE_TEXTURES + " / " + TYPE_SOUNDS + " / " + TYPE_FONTS + " / "
+                + TYPE_DATA + " / " + TYPE_LANG + "，并且要带文件后缀。"
+                + "如果这是贴图，多半想写的是 " + hint);
     }
 }
