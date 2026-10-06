@@ -166,6 +166,76 @@ class ChatDialogStandeeLayoutTest {
         });
     }
 
+    /**
+     * 推进一句（真实关闭路径：点对话框）之后，立绘要还在画面上。
+     *
+     * <p>游戏里对话是一句句「点掉」的，关闭/淡出动画跑过一轮再显示下一句；
+     * 之前测试都是直接连着 showDialog，没走这条路径。
+     */
+    @Test
+    void theStandeeStaysOnScreenAfterAdvancing() throws Exception {
+        Assumptions.assumeTrue(toolkitReady, "测试环境起不了 JavaFX 工具包，跳过布局测试");
+        ChatManager chat = ChatManager.getInstance();
+
+        onFxAndWait(() -> {
+            mountInScene(chat);
+            chat.forceCloseAll();
+            chat.setStandee("starveil:testchat/fixture-standee.png");
+            chat.showDialog("甲", "第一句", null, "starveil:testchat/fixture-standee.png");
+            return null;
+        });
+        waitForStandeeSettled(chat);
+        assertEquals(0.0, onFxAndWait(() -> chat.standeePaneForTest().getTranslateX()), 0.5,
+                "前置条件：立绘应当已经滑到位");
+
+        // 点一下对话框推进（走真实的关闭/淡出路径）
+        onFxAndWait(() -> {
+            Region dialog = latestDialogNode(chat);
+            assertNotNull(dialog, "应当有对话框可以点");
+            javafx.event.Event.fireEvent(dialog, clickOn(dialog));
+            return null;
+        });
+        Thread.sleep(800);
+
+        // 下一句不带立绘参数（立绘保持）
+        onFxAndWait(() -> {
+            chat.showDialog("甲", "第二句", null, null);
+            return null;
+        });
+        double x = onFxAndWait(() -> {
+            forceLayout(chat);
+            return chat.standeePaneForTest().getTranslateX();
+        });
+        assertEquals(0.0, x, 0.5,
+                "推进一句之后立绘应当还在画面上（不该被关闭动画挪到画面外），实际 x=" + x);
+
+        onFxAndWait(() -> {
+            chat.setStandee("");
+            return null;
+        });
+    }
+
+    /** 造一个点击事件（Pane 上的 onMouseClicked 只需要类型和按钮）。 */
+    private static javafx.scene.input.MouseEvent clickOn(Region node) {
+        return new javafx.scene.input.MouseEvent(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                node.getWidth() / 2, node.getHeight() / 2, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY, 1,
+                false, false, false, false,
+                true, false, false, true, false, false, null);
+    }
+
+    /** 最新那个对话框面板节点。 */
+    private static Region latestDialogNode(ChatManager chat) {
+        StackPane host = chat.getChatContainer();
+        Region dialog = null;
+        for (javafx.scene.Node node : host.getChildren()) {
+            if (node instanceof Region region && StackPane.getMargin(node) != null) {
+                dialog = region;
+            }
+        }
+        return dialog;
+    }
     /** 立绘层当前状态，断言失败时用来看清到底缺了什么。 */
     private static String standeeState(ChatManager chat) throws Exception {
         return onFxAndWait(() -> {

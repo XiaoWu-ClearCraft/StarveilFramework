@@ -138,6 +138,9 @@ public class ChatManager {
      */
     private long standeeToken = 0;
 
+    /** 最近一次立绘滑动动画（滑入 / 滑出）。用来判断「现在是不是动画在跑」，见 {@link #ensureStandeeOnScreen()}。 */
+    private TranslateTransition standeeSlide;
+
     private StackPane standeePane;
     private ImageView standeeImageView;
 
@@ -335,6 +338,7 @@ public class ChatManager {
                     .add(finalSpeaker, historyMessage);
             updateContainerSize();
             cleanupCurrentDialog();
+            traceStandee("showDialog 之前(路径=" + standeeImagePath + ")");   // TEMP-TRACE
             double oldStandeeEdge = standeeRightEdge();
             String oldStandeePath = currentStandeePath;
             boolean slideIn = standeeImagePath != null && !standeeImagePath.isEmpty()
@@ -342,6 +346,12 @@ public class ChatManager {
             boolean slideOut = standeeImagePath != null && standeeImagePath.isEmpty()
                     && oldStandeeEdge > 0;
             updateStandee(standeeImagePath);
+            traceStandee("showDialog 之后(路径=" + standeeImagePath + ")");   // TEMP-TRACE
+            // TEMP-TRACE: 等滑入动画该跑完的时候再看一眼
+            javafx.animation.PauseTransition probe =
+                    new javafx.animation.PauseTransition(Duration.millis(900));
+            probe.setOnFinished(e -> traceStandee("900ms 后"));
+            probe.play();
             dialogActive.set(true);
             overlay.setVisible(true);
             overlay.setOpacity(1);
@@ -367,6 +377,7 @@ public class ChatManager {
 
     private void layoutDialogForStandee() {
         if (currentDialog == null) return;
+        ensureStandeeOnScreen();
         double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
         double gap = 16;
         // 立绘可能被内容挪过位置/放大：按它实际占到的右边界让位。
@@ -476,9 +487,46 @@ public class ChatManager {
         return standeeStyle.fitHeight(paneH);
     }
 
+    /**
+     * 立绘「应该在画面上」却停在画面外时把它拉回来。
+     *
+     * <p>踩过的坑：滑出动画（收起立绘）被打断后不会走 onFinished，立绘层就永远停在
+     * 负的 translateX 上 —— 立绘看不见了，但 {@code isVisible()} 还是 true，
+     * 于是对话框继续按「有立绘」缩在右边。这里在每次真正布局对话框时自愈：
+     * 只要没有滑动动画在跑、立绘层可见、图片还在，位置就该是 0。
+     */
+    private void ensureStandeeOnScreen() {
+        if (standeeImageView == null || !standeePane.isVisible()) {
+            return;
+        }
+        if (standeeSlide != null
+                && standeeSlide.getStatus() == javafx.animation.Animation.Status.RUNNING) {
+            return;
+        }
+        if (standeePane.getTranslateX() < -0.5) {
+            Logger("DEBUG", "立绘停在画面外（x=" + Math.round(standeePane.getTranslateX())
+                    + "），已拉回原位");
+            standeePane.setTranslateX(0);
+        }
+    }
+
     /** 当前画布高度（布局还没跑过时按逻辑画布 1080 算）。 */
     private double standeePaneHeight() {
         return chatContainer.getHeight() > 0 ? chatContainer.getHeight() : 1080;
+    }
+
+    /** TEMP-TRACE: 立绘层的真实状态，用来定位「立绘没显示但对话框还让位」。 */
+    private void traceStandee(String tag) {
+        ImageView view = standeeImageView;
+        Logger("DEBUG", "【立绘状态】" + tag
+                + " 层可见=" + standeePane.isVisible()
+                + " 层不透明=" + standeePane.getOpacity()
+                + " 层X=" + Math.round(standeePane.getTranslateX())
+                + " 子节点=" + standeePane.getChildren().size()
+                + " 图片不透明=" + (view == null ? "无" : Math.round(view.getOpacity()))
+                + " 图X=" + (view == null ? "无" : Math.round(view.getTranslateX()))
+                + " 高=" + (view == null ? "无" : Math.round(view.getFitHeight()))
+                + " 路径=" + currentStandeePath);
     }
 
     /** 把图片按当前样式摆好（尺寸 + 偏移）。 */
@@ -543,6 +591,7 @@ public class ChatManager {
             TranslateTransition slide = new TranslateTransition(Duration.millis(350), standeePane);
             slide.setToX(0);
             slide.setInterpolator(Interpolator.EASE_OUT);
+            standeeSlide = slide;
             slide.play();
             currentStandeePath = path;
             Logger("DEBUG", "立绘滑入: " + path + "（第 " + token + " 次立绘操作）");
@@ -563,6 +612,7 @@ public class ChatManager {
             return;
         }
         long token = ++standeeToken;
+        Logger("DEBUG", "立绘收起（滑出动画开始）");   // TEMP-TRACE
         double imgW = 400;
         if (standeeImageView != null && standeeImageView.getImage() != null) {
             Image img = standeeImageView.getImage();
@@ -575,6 +625,7 @@ public class ChatManager {
         TranslateTransition slide = new TranslateTransition(Duration.millis(250), standeePane);
         slide.setToX(-imgW);
         slide.setInterpolator(Interpolator.EASE_IN);
+        standeeSlide = slide;
         slide.setOnFinished(e -> {
             if (token != standeeToken) {
                 // 动画跑完之前内容已经设了下一张立绘：这次收尾作废（否则会把新立绘清掉）
