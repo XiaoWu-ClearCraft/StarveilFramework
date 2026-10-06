@@ -181,17 +181,26 @@ public class ChatManager {
         chatContainer.setMouseTransparent(true);
         chatContainer.setPickOnBounds(false);
         chatContainer.setVisible(false);
+        // 最小尺寸必须显式归零：容器的高度是「布局算出来的」，而里面的立绘可以比容器还高
+        // （放大 / 半身框就是靠溢出 + 画布裁剪实现的）。不归零的话，立绘的 min 会把容器顶大，
+        // 容器一变高又触发按新高度重新缩放立绘 —— 于是每过一帧就更大一点，无限长大。
+        chatContainer.setMinSize(0, 0);
+        chatContainer.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
 
         standeePane = new StackPane();
         standeePane.setVisible(false);
         standeePane.setMouseTransparent(true);
         standeePane.setPickOnBounds(false);
         standeePane.setAlignment(javafx.geometry.Pos.BOTTOM_LEFT);
+        // 同上：立绘溢出是刻意效果，不该反过来撑大任何容器
+        standeePane.setMinSize(0, 0);
+        standeePane.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
 
         storyImagePane = new StackPane();
         storyImagePane.setVisible(false);
         storyImagePane.setMouseTransparent(true);
         storyImagePane.setPickOnBounds(false);
+        storyImagePane.setMinSize(0, 0);
 
         overlay = new Pane();
         overlay.setStyle("-fx-background-color: rgba(0,0,0,0.4);");
@@ -200,6 +209,9 @@ public class ChatManager {
 
         historyManager = new HistoryManager(chatContainer, overlay);
         historyPanel = historyManager.buildHistoryPanel();
+        if (historyPanel != null) {
+            historyPanel.setMinSize(0, 0);   // 面板再高也不许把容器顶大
+        }
 
         dialogUI = new DialogUI(chatContainer, overlay, animationController, renderEngine, historyManager);
 
@@ -383,6 +395,8 @@ public class ChatManager {
                         new KeyValue(currentDialog.translateXProperty(), sw, Interpolator.EASE_OUT)
                 )
         );
+        // 动画结束后把边距归到「让 sw」的一致状态（动画期间靠 translateX 顶上）
+        timeline.setOnFinished(e -> layoutDialogForStandee());
         timeline.play();
     }
 
@@ -410,6 +424,9 @@ public class ChatManager {
                         new KeyValue(currentDialog.translateXProperty(), 0, Interpolator.EASE_IN)
                 )
         );
+        // 动画只动 maxWidth/translateX，让位的「边距」一直停在 gap；
+        // 结束时按当前状态重算一次，把边距/宽度归到一致的状态。
+        timeline.setOnFinished(e -> layoutDialogForStandee());
         timeline.play();
     }
 
@@ -518,6 +535,10 @@ public class ChatManager {
 
     private void slideOutStandee() {
         if (!standeePane.isVisible()) {
+            // 已经不可见了：这里也得把图片清掉，否则 standeeRightEdge() 还会以为立绘在，
+            // 后续对话框会一直按「有立绘」让位（表现为对话框一直缩着、右边空一大块）。
+            standeePane.getChildren().clear();
+            standeeImageView = null;
             currentStandeePath = null;
             currentStandeeWidth = 0;
             return;
