@@ -3,6 +3,8 @@ package com.xiaowu.game.starveil.game.story;
 import com.xiaowu.game.starveil.config.GameConstants;
 import com.xiaowu.game.starveil.game.quest.QuestManager;
 import com.xiaowu.game.starveil.game.world.MapManager;
+import com.xiaowu.game.starveil.infrastructure.net.NetworkStatus;
+import com.xiaowu.game.starveil.infrastructure.net.TrustedTime;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataKey;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataKeyRegistry;
 import com.xiaowu.game.starveil.infrastructure.persistence.DataManager;
@@ -15,6 +17,7 @@ import com.xiaowu.game.starveil.ui.overlay.NotificationManager;
 import com.xiaowu.game.starveil.ui.overlay.PopupManager;
 import javafx.application.Platform;
 
+import java.time.LocalDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -606,6 +609,77 @@ public final class StoryScript {
         com.xiaowu.game.starveil.infrastructure.persistence.FrameworkDataKeys
                 .PLAYER_NAME.set(name);
         return this;
+    }
+
+    // ==================== 时间 / 网络 ====================
+
+    /**
+     * 现在的时间戳（毫秒，<b>可信时间</b>）。
+     *
+     * <p>可信 = 联网要回来的基准 + 单调时钟推进，玩家在游戏运行期间改系统时钟也不受影响；
+     * 从没同步过（首次启动 + 没网）时它退回本机时钟，用 {@link #isTimeTrusted()} 判断。
+     * 存档、冷却这类「记一个时刻」的场合存它。
+     */
+    public long timestamp() {
+        return TrustedTime.now().toEpochMilli();
+    }
+
+    /** 现在（可信时间）的本地日期时间 —— 想取年月日/星期几就用它。 */
+    public LocalDateTime dateTime() {
+        return TrustedTime.nowLocal();
+    }
+
+    /**
+     * 现在几点（0-23，可信时间）。
+     *
+     * <p>想按时间换问候语就是它：
+     *
+     * <pre>{@code
+     * int h = s.hour();
+     * String hello = h < 5 ? "还没睡呀？"
+     *              : h < 11 ? "早上好"
+     *              : h < 14 ? "中午好"
+     *              : h < 18 ? "下午好" : "晚上好";
+     * s.say("霁雾", hello + "~");
+     * }</pre>
+     */
+    public int hour() {
+        return TrustedTime.hourOfDay(timestamp());
+    }
+
+    /** 可信时间是否真的可信（同步成功过，或上次运行留下了基准）。 */
+    public boolean isTimeTrusted() {
+        return TrustedTime.isSynced();
+    }
+
+    /** 现在的时间字符串，比如 {@code s.time("HH:mm")} → {@code "08:30"}。 */
+    public String time(String pattern) {
+        return TrustedTime.format(timestamp(), pattern);
+    }
+
+    /** 把时间戳转成本地日期时间（按玩家机器时区）。 */
+    public LocalDateTime dateTimeOf(long epochMillis) {
+        return TrustedTime.toLocalDateTime(epochMillis);
+    }
+
+    /** 把时间戳按格式转成字符串，比如 {@code s.formatTime(ts, "M月d日 HH:mm")}。 */
+    public String formatTime(long epochMillis, String pattern) {
+        return TrustedTime.format(epochMillis, pattern);
+    }
+
+    /** 那个时间戳是几点（0-23）。 */
+    public int hourOf(long epochMillis) {
+        return TrustedTime.hourOfDay(epochMillis);
+    }
+
+    /**
+     * 现在能不能上互联网。
+     *
+     * <p>用于「联网才有」的剧情分支：不联网也能玩的游戏照样可以在某一段要求联网。
+     * 判定细节见 {@code docs/network.md}；刚启动还没测出来时按「有网」处理。
+     */
+    public boolean isOnline() {
+        return NetworkStatus.isOnline();
     }
 
     // ==================== 屏幕特效（只改遮罩层内容） ====================

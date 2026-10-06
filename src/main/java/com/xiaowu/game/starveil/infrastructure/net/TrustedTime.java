@@ -8,7 +8,9 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -132,6 +134,63 @@ public final class TrustedTime {
     /** 上次同步（或恢复）时的本机时钟毫秒值；0 表示从未。 */
     public static long lastSyncWallMillis() {
         return lastSyncWallMillis;
+    }
+
+    // ==================== 时间戳 ⇄ 日期时间 ====================
+
+    /**
+     * 时间戳 → 本地日期时间（按玩家机器的时区）。
+     *
+     * <p>存档、冷却这类地方存的都是毫秒时间戳；要显示或判断「现在几点」就得转过来。
+     * 时区用 {@link ZoneId#systemDefault()}：玩家的表是几点，问候语就该说几点。
+     */
+    public static LocalDateTime toLocalDateTime(long epochMillis) {
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault());
+    }
+
+    /** 时间戳 → 本地日期。 */
+    public static LocalDate toLocalDate(long epochMillis) {
+        return toLocalDateTime(epochMillis).toLocalDate();
+    }
+
+    /** 时间戳 → 本地时刻（时分秒）。 */
+    public static LocalTime toLocalTime(long epochMillis) {
+        return toLocalDateTime(epochMillis).toLocalTime();
+    }
+
+    /** 时间戳 → 带时区的日期时间。 */
+    public static ZonedDateTime toZonedDateTime(long epochMillis) {
+        return ZonedDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault());
+    }
+
+    /** 本地日期时间 → 时间戳（毫秒）。按本机时区解释。 */
+    public static long toEpochMillis(LocalDateTime localDateTime) {
+        return localDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    /**
+     * 时间戳 → 格式化的字符串，格式用 {@link DateTimeFormatter} 的写法。
+     *
+     * <pre>{@code
+     * TrustedTime.format(millis, "yyyy-MM-dd HH:mm")   // 2026-10-06 08:30
+     * TrustedTime.format(millis, "HH:mm")              // 08:30
+     * }</pre>
+     */
+    public static String format(long epochMillis, String pattern) {
+        if (pattern == null || pattern.isEmpty()) {
+            return toLocalDateTime(epochMillis).toString();
+        }
+        return toLocalDateTime(epochMillis).format(DateTimeFormatter.ofPattern(pattern));
+    }
+
+    /** 时间戳是当天的几点（0-23）。挑问候语（早上好 / 晚上好）最常用的一个。 */
+    public static int hourOfDay(long epochMillis) {
+        return toLocalDateTime(epochMillis).getHour();
+    }
+
+    /** 会话用的时区（本机时区）。 */
+    public static ZoneId zone() {
+        return ZoneId.systemDefault();
     }
 
     /** 上次同步用的地址；null 表示当前基准来自配置而不是本次联网。 */

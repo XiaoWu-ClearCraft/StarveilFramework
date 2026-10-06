@@ -154,6 +154,32 @@ TrustedTime.baseTrustedMillis();       // 基准时间戳本身
 > **没同步过时 `trustedNow()` 返回本机时钟** —— 游戏不该因为取不到时间就跑不动。
 > 要判断这个值值不值得信，只看 `isSynced()`（首次启动 + 没网时为 `false`）。
 
+### 时间戳 ⇄ 日期时间
+
+存档、冷却里存的都是毫秒时间戳，要显示或判断「现在几点」得转过来 ——
+不用自己拼 `Instant`/`ZoneId`：
+
+```java
+long t = Starveil.time().trustedEpochMillis();
+
+LocalDateTime dt = Starveil.time().toLocalDateTime(t);   // 2026-10-06T08:30
+LocalDate day    = Starveil.time().toLocalDate(t);
+LocalTime clock  = Starveil.time().toLocalTime(t);
+int hour         = Starveil.time().hourOfDay(t);         // 8 ← 问候语最常用
+String text      = Starveil.time().format(t, "M月d日 HH:mm");
+long back        = Starveil.time().toEpochMillis(LocalDateTime.of(2026, 10, 6, 6, 0));
+
+// 和「现在」有关的快捷写法
+int nowHour = Starveil.time().hourOfDay();
+ZoneId zone = Starveil.time().zone();                    // 玩家机器的时区
+```
+
+时区一律用**玩家机器的时区**（`ZoneId.systemDefault()`）：玩家的表是几点，
+问候语就该说几点。
+
+剧情脚本里有更短的写法（`s.hour()` / `s.time("HH:mm")` / `s.isOnline()` …，
+连问候语的分档示例见 [剧情开发指南](story-guide.md) 的「时间与网络」）。
+
 ### 为什么是「基准时间戳 + 单调时钟」
 
 本机时钟由玩家说了算，改一下系统时间就能跳过冷却、刷新每日奖励、伪造存档时间戳。

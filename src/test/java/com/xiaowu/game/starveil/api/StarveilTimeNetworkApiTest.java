@@ -8,6 +8,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -85,6 +87,44 @@ class StarveilTimeNetworkApiTest {
         Thread.sleep(30);
         Instant second = Starveil.time().trustedNow();
         assertTrue(second.isAfter(first), "可信时间要往前走");
+    }
+
+    // ==================== 时间戳 ⇄ 日期时间 ====================
+
+    @Test
+    void aTimestampConvertsToThePlayersLocalDateTime() {
+        // 用「本地时间 → 时间戳 → 本地时间」转一圈：跑在哪个时区都对
+        LocalDateTime local = LocalDateTime.of(2026, 10, 6, 8, 30, 15);
+        long t = Starveil.time().toEpochMillis(local);
+
+        assertEquals(local, Starveil.time().toLocalDateTime(t));
+        assertEquals(local.toLocalDate(), Starveil.time().toLocalDate(t));
+        assertEquals(local.toLocalTime(), Starveil.time().toLocalTime(t));
+        assertEquals(local.atZone(ZoneId.systemDefault()), Starveil.time().toZonedDateTime(t));
+        assertEquals(ZoneId.systemDefault(), Starveil.time().zone());
+    }
+
+    @Test
+    void hourOfDayIsWhatGreetingsNeed() {
+        assertEquals(8, Starveil.time().hourOfDay(
+                Starveil.time().toEpochMillis(LocalDateTime.of(2026, 10, 6, 8, 30))));
+        assertEquals(0, Starveil.time().hourOfDay(
+                Starveil.time().toEpochMillis(LocalDateTime.of(2026, 10, 6, 0, 5))));
+        assertEquals(23, Starveil.time().hourOfDay(
+                Starveil.time().toEpochMillis(LocalDateTime.of(2026, 10, 6, 23, 59))));
+
+        int now = Starveil.time().hourOfDay();
+        assertTrue(now >= 0 && now <= 23, "现在的小时数要在 0-23: " + now);
+    }
+
+    @Test
+    void formatUsesDateTimeFormatterPatterns() {
+        long t = Starveil.time().toEpochMillis(LocalDateTime.of(2026, 10, 6, 8, 30));
+        assertEquals("2026-10-06 08:30", Starveil.time().format(t, "yyyy-MM-dd HH:mm"));
+        assertEquals("08:30", Starveil.time().format(t, "HH:mm"));
+        assertEquals("10月6日", Starveil.time().format(t, "M月d日"));
+        // 空格式串退化成 ISO 文本，而不是抛异常
+        assertNotNull(Starveil.time().format(t, ""));
     }
 
     // ==================== 网络状况 ====================

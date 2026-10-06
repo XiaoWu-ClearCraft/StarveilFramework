@@ -592,6 +592,35 @@ public class Chapter2 implements StoryChapter {
 | `data(key)` / `setData(key, value)` | 全局配置（跨存档） |
 | `playerName()` / `setPlayerName(name)` | 玩家名字 |
 
+#### 时间与网络
+
+| 方法 | 返回值 |
+| --- | --- |
+| `timestamp()` | 现在的时间戳（毫秒，**可信时间**） |
+| `dateTime()` | 现在的本地日期时间（`LocalDateTime`） |
+| `hour()` | 现在几点，0-23 |
+| `time(pattern)` / `formatTime(timestamp, pattern)` | 时间字符串，如 `s.time("HH:mm")` |
+| `dateTimeOf(timestamp)` / `hourOf(timestamp)` | 把存下来的时间戳转回日期时间 / 小时 |
+| `isTimeTrusted()` | 可信时间是不是真的可信（首次启动 + 没网时为 `false`） |
+| `isOnline()` | 现在能不能上互联网 |
+
+**可信时间**指「联网要回来的基准时间戳 + 单调时钟推进」：玩家在游戏运行期间改系统时钟
+也影响不了它（跨重启改才有影响，重新联网同步即可修正）。存档里记时刻用 `timestamp()`，
+显示用 `time(...)`。想拿现成的分档问候语自己判断小时即可：
+
+```java
+int h = s.hour();
+String hello = h < 5  ? "还没睡呀？"
+             : h < 11 ? "早上好"
+             : h < 14 ? "中午好"
+             : h < 18 ? "下午好"
+             :          "晚上好";
+s.say("霁雾", hello + "~");
+```
+
+> 内容与插件也能用同一套能力（`Starveil.time()` / `Starveil.network()`），
+> 见 [联网 / 时间 / IP 属地](network.md)。剧情脚本里直接用 `s.xxx()` 更省事。
+
 #### 外挂与调试
 
 | 方法 | 说明 |

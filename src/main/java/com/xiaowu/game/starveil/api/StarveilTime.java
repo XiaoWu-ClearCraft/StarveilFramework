@@ -3,7 +3,10 @@ package com.xiaowu.game.starveil.api;
 import com.xiaowu.game.starveil.infrastructure.net.TrustedTime;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.concurrent.CompletableFuture;
 
@@ -101,5 +104,65 @@ public class StarveilTime {
      */
     public CompletableFuture<Boolean> syncAsync() {
         return TrustedTime.syncAsync();
+    }
+
+    // ==================== 时间戳 ⇄ 日期时间 ====================
+
+    /**
+     * 时间戳 → 本地日期时间（按玩家机器的时区）。
+     *
+     * <p>存档、冷却里存的都是毫秒时间戳；要显示或者判断「现在几点」就得转过来。
+     *
+     * <pre>{@code
+     * long t = Starveil.time().trustedEpochMillis();
+     * LocalDateTime dt = Starveil.time().toLocalDateTime(t);
+     * int hour = dt.getHour();          // 或者直接 Starveil.time().hourOfDay(t)
+     * }</pre>
+     */
+    public LocalDateTime toLocalDateTime(long epochMillis) {
+        return TrustedTime.toLocalDateTime(epochMillis);
+    }
+
+    /** 时间戳 → 本地日期（年月日）。 */
+    public LocalDate toLocalDate(long epochMillis) {
+        return TrustedTime.toLocalDate(epochMillis);
+    }
+
+    /** 时间戳 → 本地时刻（时分秒）。 */
+    public LocalTime toLocalTime(long epochMillis) {
+        return TrustedTime.toLocalTime(epochMillis);
+    }
+
+    /** 时间戳 → 带时区的日期时间。 */
+    public ZonedDateTime toZonedDateTime(long epochMillis) {
+        return TrustedTime.toZonedDateTime(epochMillis);
+    }
+
+    /** 本地日期时间 → 时间戳（毫秒）。想算「明天 6 点」这种时刻时用。 */
+    public long toEpochMillis(LocalDateTime localDateTime) {
+        return TrustedTime.toEpochMillis(localDateTime);
+    }
+
+    /**
+     * 时间戳 → 格式化字符串，格式用 {@link java.time.format.DateTimeFormatter} 的写法：
+     * {@code format(millis, "yyyy-MM-dd HH:mm")} → {@code "2026-10-06 08:30"}。
+     */
+    public String format(long epochMillis, String pattern) {
+        return TrustedTime.format(epochMillis, pattern);
+    }
+
+    /** 现在是几点（0-23，可信时间）。 */
+    public int hourOfDay() {
+        return hourOfDay(trustedEpochMillis());
+    }
+
+    /** 这个时间戳是几点（0-23）。挑问候语（早上好 / 下午好）最常用的一个。 */
+    public int hourOfDay(long epochMillis) {
+        return TrustedTime.hourOfDay(epochMillis);
+    }
+
+    /** 会话用的时区（玩家机器的时区）。 */
+    public ZoneId zone() {
+        return TrustedTime.zone();
     }
 }
