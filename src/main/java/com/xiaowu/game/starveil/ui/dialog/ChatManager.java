@@ -118,6 +118,18 @@ public class ChatManager {
     private String currentStandeePath;
     private double currentStandeeWidth;
 
+    /**
+     * 立绘的显示样式（偏移 + 缩放）。
+     *
+     * <p>默认是「全身立绘、贴着左下角、高度 = 画布 68%」；内容可以让立绘偏移/放大来显示
+     * 半身（{@link StandeeStyle} 里有坐标系说明）。
+     *
+     * <p><b>样式是粘性的</b>：设过一次就一直生效，之后只换立绘路径（不带偏移的写法）不会把它
+     * 重置回默认；想回到默认就显式传 0、0、1。这样内容可以「开局定一次半身框，
+     * 后面换表情图不用每次重复写偏移」。
+     */
+    private StandeeStyle standeeStyle = StandeeStyle.standard();
+
     private StackPane standeePane;
     private ImageView standeeImageView;
 
@@ -231,7 +243,12 @@ public class ChatManager {
             storyImageView.setFitHeight(h);
         }
         if (standeeImageView != null) {
-            standeeImageView.setFitHeight(h * 0.68);
+            ImageView view = standeeImageView;
+            applyStandeeStyle(view, h);
+            Image img = view.getImage();
+            currentStandeeWidth = (img == null || img.getHeight() <= 0)
+                    ? 0
+                    : img.getWidth() * (standeeFitHeight(h) / img.getHeight());
         }
         if (historyPanel != null) {
             historyPanel.setPrefWidth(w * 0.8);
@@ -248,7 +265,20 @@ public class ChatManager {
     }
 
     public CompletableFuture<Void> showDialog(String speaker, String message, String voicePath, String standeeImagePath) {
+        // 不带样式的老签名：沿用当前样式（样式是粘性的）
+        return showDialog(speaker, message, voicePath, standeeImagePath, standeeStyle);
+    }
+
+    /**
+     * 带立绘样式参数的对话。
+     *
+     * @param standeeImagePath 立绘路径；{@code ""} 收起立绘，null 表示不变
+     * @param style            立绘样式：偏移（逻辑画布像素）+ 缩放，见 {@link StandeeStyle}
+     */
+    public CompletableFuture<Void> showDialog(String speaker, String message, String voicePath,
+                                              String standeeImagePath, StandeeStyle style) {
         Logger("DEBUG", "showDialog执行 speaker : " + speaker + " message : " + message);
+        this.standeeStyle = style == null ? StandeeStyle.standard() : style;
         CompletableFuture<Void> future = new CompletableFuture<>();
         currentDialogFuture = future;
         future.whenComplete((r, ex) -> {
@@ -285,12 +315,12 @@ public class ChatManager {
                     .add(finalSpeaker, historyMessage);
             updateContainerSize();
             cleanupCurrentDialog();
-            double oldStandeeW = currentStandeeWidth;
+            double oldStandeeEdge = standeeRightEdge();
             String oldStandeePath = currentStandeePath;
             boolean slideIn = standeeImagePath != null && !standeeImagePath.isEmpty()
                     && oldStandeePath == null;
             boolean slideOut = standeeImagePath != null && standeeImagePath.isEmpty()
-                    && oldStandeeW > 0;
+                    && oldStandeeEdge > 0;
             updateStandee(standeeImagePath);
             dialogActive.set(true);
             overlay.setVisible(true);
@@ -305,7 +335,7 @@ public class ChatManager {
             if (slideIn) {
                 animateDialogForStandeeSlideIn();
             } else if (slideOut) {
-                animateDialogForStandeeSlideOut(oldStandeeW);
+                animateDialogForStandeeSlideOut(oldStandeeEdge);
             } else {
                 layoutDialogForStandee();
             }
@@ -318,8 +348,10 @@ public class ChatManager {
     private void layoutDialogForStandee() {
         if (currentDialog == null) return;
         double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
-        double sw = currentStandeeWidth;
         double gap = 16;
+        // 立绘可能被内容挪过位置/放大：按它实际占到的右边界让位。
+        // 上限 80% 画布宽：立绘特别宽（或放大很多）时也要给对话框留出可读的宽度。
+        double sw = Math.min(standeeRightEdge(), vw * 0.8);
         double leftMar = sw > 0 ? sw + gap : gap;
         double rightMar = gap;
         double bottomMar = 50;
@@ -332,7 +364,7 @@ public class ChatManager {
     private void animateDialogForStandeeSlideIn() {
         if (currentDialog == null || currentStandeeWidth <= 0) return;
         double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
-        double sw = currentStandeeWidth;
+        double sw = Math.min(standeeRightEdge(), vw * 0.8);
         double gap = 16;
         double startW = vw - gap * 2;
         double endW = vw - sw - gap * 2;
@@ -360,6 +392,7 @@ public class ChatManager {
         }
         double vw = chatContainer.getWidth() > 0 ? chatContainer.getWidth() : 1920;
         double gap = 16;
+        oldW = Math.min(oldW, vw * 0.8);
         double startW = vw - oldW - gap * 2;
         double endW = vw - gap * 2;
         currentDialog.setMaxWidth(startW);
@@ -385,12 +418,55 @@ public class ChatManager {
             slideOutStandee();
             return;
         }
-        if (newPath.equals(currentStandeePath) && standeePane.isVisible()) return;
+        if (newPath.equals(currentStandeePath) && standeePane.isVisible()) {
+            // 同一个立绘，可能只是改了偏移/缩放：就地调整，不必淡入淡出
+            restyleCurrentStandee();
+            return;
+        }
         if (currentStandeePath == null) {
             slideInStandee(newPath);
         } else {
             crossFadeStandee(newPath);
         }
+    }
+
+    /** 立绘的目标显示高度：画布高度的 68% × 内容指定的缩放。 */
+    private double standeeFitHeight(double paneH) {
+        return standeeStyle.fitHeight(paneH);
+    }
+
+    /** 当前画布高度（布局还没跑过时按逻辑画布 1080 算）。 */
+    private double standeePaneHeight() {
+        return chatContainer.getHeight() > 0 ? chatContainer.getHeight() : 1080;
+    }
+
+    /** 把图片按当前样式摆好（尺寸 + 偏移）。 */
+    private void applyStandeeStyle(ImageView view, double paneH) {
+        if (view == null) return;
+        view.setFitHeight(standeeFitHeight(paneH));
+        view.setTranslateX(standeeStyle.offsetX());
+        view.setTranslateY(standeeStyle.offsetY());
+    }
+
+    /** 立绘在画布上占到的右边界（供对话框让位；被挪到画布外时算 0）。 */
+    private double standeeRightEdge() {
+        if (standeeImageView == null || standeeImageView.getImage() == null) {
+            return 0;
+        }
+        Image img = standeeImageView.getImage();
+        return standeeStyle.rightEdge(standeePaneHeight(), img.getWidth(), img.getHeight());
+    }
+
+    /** 只换样式不换图：重新算尺寸/宽度并让对话框重新让位。 */
+    private void restyleCurrentStandee() {
+        if (standeeImageView == null) return;
+        double paneH = standeePaneHeight();
+        applyStandeeStyle(standeeImageView, paneH);
+        Image img = standeeImageView.getImage();
+        currentStandeeWidth = img == null
+                ? 0
+                : standeeStyle.displayWidth(paneH, img.getWidth(), img.getHeight());
+        layoutDialogForStandee();
     }
 
     private void slideInStandee(String path) {
@@ -400,12 +476,12 @@ public class ChatManager {
                 Logger("ERROR", "Failed to load standee image: " + path);
                 return;
             }
-            double paneH = chatContainer.getHeight() > 0 ? chatContainer.getHeight() : 1080;
+            double paneH = standeePaneHeight();
             standeeImageView = view;
             standeeImageView.setPreserveRatio(true);
-            standeeImageView.setFitHeight(paneH * 0.68);
+            applyStandeeStyle(standeeImageView, paneH);
             standeePane.getChildren().setAll(standeeImageView);
-            double standeeH = paneH * 0.68;
+            double standeeH = standeeFitHeight(paneH);
             double imgW = view.getImage().getWidth() * (standeeH / view.getImage().getHeight());
             currentStandeeWidth = imgW;
             standeePane.setTranslateX(-imgW);
@@ -457,11 +533,11 @@ public class ChatManager {
                 Logger("ERROR", "Failed to load standee image: " + newPath);
                 return;
             }
-            double paneH = chatContainer.getHeight() > 0 ? chatContainer.getHeight() : 1080;
+            double paneH = standeePaneHeight();
             newView.setPreserveRatio(true);
-            newView.setFitHeight(paneH * 0.68);
+            applyStandeeStyle(newView, paneH);
             newView.setOpacity(0);
-            double sh = paneH * 0.68;
+            double sh = standeeFitHeight(paneH);
             currentStandeeWidth = newView.getImage().getWidth() * (sh / newView.getImage().getHeight());
             standeePane.setTranslateX(0);
             standeePane.setVisible(true);
@@ -1019,7 +1095,21 @@ public class ChatManager {
      * @param path 立绘路径；null 或空串表示收起立绘
      */
     public void setStandee(String path) {
+        // 不带样式的老签名：沿用当前样式
+        setStandee(path, standeeStyle);
+    }
+
+    /**
+     * 切换立绘并指定显示样式（供 {@code StoryScript.standee} 使用）。
+     *
+     * <p>因为是同一个立绘时只改样式不会重新淡入，所以「把同一张立绘挪个位置」也走这里。
+     *
+     * @param path  立绘路径；null 或空串表示收起立绘
+     * @param style 立绘样式（偏移 + 缩放），null 表示回到默认
+     */
+    public void setStandee(String path, StandeeStyle style) {
         Runnable task = () -> {
+            this.standeeStyle = style == null ? StandeeStyle.standard() : style;
             if (path == null || path.isEmpty()) {
                 updateStandee("");
                 return;

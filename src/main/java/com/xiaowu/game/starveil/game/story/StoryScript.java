@@ -13,6 +13,7 @@ import com.xiaowu.game.starveil.platform.api.SystemManagerFactory;
 import com.xiaowu.game.starveil.platform.api.SystemManagerInterface;
 import com.xiaowu.game.starveil.render.effects.ScreenEffectsManager;
 import com.xiaowu.game.starveil.ui.dialog.ChatManager;
+import com.xiaowu.game.starveil.ui.dialog.StandeeStyle;
 import com.xiaowu.game.starveil.ui.overlay.NotificationManager;
 import com.xiaowu.game.starveil.ui.overlay.PopupManager;
 import javafx.application.Platform;
@@ -104,6 +105,41 @@ public final class StoryScript {
         return this;
     }
 
+    /**
+     * 显示一句对话，并指定立绘的显示偏移（用来显示半身立绘）。
+     *
+     * <p>偏移单位是<b>逻辑画布像素</b>（1920×1080），X 向右为正、Y 向下为正。
+     * 立绘默认贴着画布左下角、高度是画布的 68%（全身）。想让画面只露上半身，
+     * 就把立绘往下推一点、让下半身落到画布外 —— 画布自带裁剪，多出来的部分不会画出来：
+     *
+     * <pre>{@code
+     * s.say("霁雾", "早上好~", null, "starveil:textures/standees/jiwu.png", 0, 320);
+     * }</pre>
+     *
+     * <p>想同时放大（半身特写更常见），用带 {@code scale} 的那个重载。
+     */
+    public StoryScript say(String speaker, String text, String voicePath, String standeeImagePath,
+                           double standeeOffsetX, double standeeOffsetY) {
+        return say(speaker, text, voicePath, standeeImagePath, standeeOffsetX, standeeOffsetY, 1.0);
+    }
+
+    /**
+     * 显示一句对话，并指定立绘的偏移与缩放。
+     *
+     * @param standeeOffsetX 水平偏移（逻辑画布像素，向右为正）
+     * @param standeeOffsetY 垂直偏移（逻辑画布像素，向下为正）
+     * @param standeeScale   缩放：1.0 = 默认大小（画布高度的 68%）；1.5 就是放大一半
+     */
+    public StoryScript say(String speaker, String text, String voicePath, String standeeImagePath,
+                           double standeeOffsetX, double standeeOffsetY, double standeeScale) {
+        requireStoryThread();
+        step("say", speaker, text);
+        await(chat().showDialog(StoryText.format(speaker), StoryText.format(text),
+                voicePath, standeeImagePath,
+                StandeeStyle.of(standeeOffsetX, standeeOffsetY, standeeScale)));
+        return this;
+    }
+
     /** 旁白（无说话人）。 */
     public StoryScript narrate(String text) {
         return say(null, text);
@@ -121,6 +157,29 @@ public final class StoryScript {
         requireStoryThread();
         step("standee", path);
         chat().setStandee(path);
+        return this;
+    }
+
+    /**
+     * 切换立绘并指定显示偏移（半身立绘用；单位与语义见
+     * {@link #say(String, String, String, String, double, double)}）。
+     *
+     * <pre>{@code
+     * s.standee("starveil:textures/standees/jiwu.png", 0, 320);   // 只露上半身
+     * }</pre>
+     *
+     * <p>同一张立绘只改偏移也会生效（不会重新淡入）。
+     */
+    public StoryScript standee(String path, double standeeOffsetX, double standeeOffsetY) {
+        return standee(path, standeeOffsetX, standeeOffsetY, 1.0);
+    }
+
+    /** 切换立绘并指定偏移与缩放（{@code scale} = 1.0 为默认大小）。 */
+    public StoryScript standee(String path, double standeeOffsetX, double standeeOffsetY,
+                               double standeeScale) {
+        requireStoryThread();
+        step("standee", path);
+        chat().setStandee(path, StandeeStyle.of(standeeOffsetX, standeeOffsetY, standeeScale));
         return this;
     }
 

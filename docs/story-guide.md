@@ -557,10 +557,39 @@ public class Chapter2 implements StoryChapter {
 | `say(speaker, text)` | 显示一句对话，等玩家点掉 |
 | `say(speaker, text, voicePath)` | 带配音 |
 | `say(speaker, text, voicePath, standee)` | 同时切换立绘；`""` 表示收起 |
+| `say(speaker, text, voicePath, standee, offsetX, offsetY)` | 立绘带显示偏移（半身立绘，见下） |
+| `say(…, standee, offsetX, offsetY, scale)` | 再带缩放 |
 | `narrate(text)` | 旁白 |
 | `multi(speaker, part1, part2, …)` | 合成一次点击推进的多段文本 |
 | `standee(path)` / `hideStandee()` | 只切立绘，不显示对话 |
+| `standee(path, offsetX, offsetY)` / `standee(path, offsetX, offsetY, scale)` | 只切立绘并指定显示样式 |
 | `image(path)` / `hideImage()` | 剧情图 |
+
+##### 立绘显示半身（偏移 / 缩放）
+
+立绘默认贴着**画布左下角**、高度是画布的 **68%**（全身）。想只露上半身，
+就把立绘往下推一点，让下半身落到画布外 —— 逻辑画布自带裁剪，多出来的部分不会画出来：
+
+```java
+// 全身立绘 → 只露上半身：往下推 320（逻辑像素）
+s.say("霁雾", "早上好~", null, "starveil:textures/standees/jiwu.png", 0, 320);
+
+// 嫌人物小，同时放大 40%（半身特写更常见）
+s.say("霁雾", "好久不见。", null, "starveil:textures/standees/jiwu.png", 0, 320, 1.4);
+
+// 只换立绘、不带对话也一样
+s.standee("starveil:textures/standees/jiwu.png", 0, 320);
+s.standee("starveil:textures/standees/jiwu.png", 0, 0, 1.0);   // 回到默认（全身）
+```
+
+规则三条：
+
+- **单位是逻辑画布像素**（1920×1080），X 向右为正、Y 向下为正；负数就是往左上挪
+  （`offsetX` 为负能把立绘挪出画面左边一部分）。
+- **样式是粘性的**：设过一次就一直生效，后面只换立绘路径不会重置；想回到默认显式传
+  `0, 0, 1`。所以「半身框」可以在章节开头定一次。
+- **对话框会自动让位**：让位宽度按立绘实际的右边界算，所以把立绘横着挪走/放大之后，
+  对话框不会压在立绘上；整张立绘挪到画布外时就不让位了。
 
 #### 交互
 
